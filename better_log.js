@@ -1,9 +1,13 @@
 //simpleSourceMap=/my_modules/better_log.js
 //simpleSourceMap2=/lib/better_log.js
 /*
-* @author: palun
+* @module BetterLog
+* @author: x7dude
+* @license MIT
+* @exports A contructor function for {BetterLog} instances.
 *
-* This module exports a constructor for a logger. It can be required by nodeJS, loaded in a browser, or...
+* This module exports a constructor for a logger. It can be required by NodeJS or loaded directly
+* in a browser with <script src="/path/to/better_log.js>"
 *
 * @param object globalObj 		Either window if in broswer (see bottom), or 'this', ie whatever scope
 * 								this script is executed in
@@ -28,7 +32,7 @@
         ENV='browser';
     }
 
-// console.log('SETTING workingDir T0: ',workingDir);
+
 
 	const logLvl=[
 		{str:'trace',STR:'TRACE',nr:1,colorTerm:96,colorBrow:'background:cyan;color:black',print:console.debug}
@@ -46,23 +50,23 @@
 		/*
 			Terminal color cheat sheet
 
-			Color			Text 	Background
-			Black			30		40
-			Red				31		41
-			Green			32		42
-			Yellow			33		43
-			Blue			34		44
-			Magenta			35		45
-			Cyan			36		46
-			White			37		47	
-			Bright Black	90		100
-			Bright Red		91		101
-			Bright Green	92		102
-			Bright Yellow	93		103
-			Bright Blue		94		104
-			Bright Magenta	95		105
-			Bright Cyan		96		106
-			Bright White	97		107
+			Color			Text    Background
+			Black           30      40
+			Red             31      41
+			Green           32      42
+			Yellow          33      43
+			Blue            34      44
+			Magenta         35      45
+			Cyan            36      46
+			White           37      47	
+			Bright Black    90      100
+			Bright Red      91      101
+			Bright Green    92      102
+			Bright Yellow   93      103
+			Bright Blue     94      104
+			Bright Magenta  95      105
+			Bright Cyan     96      106
+			Bright White    97      107
 		*/
 	const highlightColor={
 		'red':{colorTerm:41,colorBrow:'red'}
