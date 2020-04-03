@@ -1,11 +1,16 @@
 {
-  "name": "BetterLog",
+  "name": "evenbetterlog",
   "version": "1.0.0",
-  "description": "A logging class for NodeJS and browers",
+  "description": "A small standalone logging module suitable for NodeJS and browser",
   "main": "better_log.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "plundell",
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/plundell/betterlog",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/plundell/betterlog.git"
+  }
 }
