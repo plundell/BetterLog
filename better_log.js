@@ -2,7 +2,8 @@
 //simpleSourceMap2=/lib/better_log.js
 /*
 * @module BetterLog
-* @author: x7dude
+* @author plundell 
+* @email qmusicplayer@protonmail.com
 * @license MIT
 * @exports A contructor function for {BetterLog} instances.
 *
