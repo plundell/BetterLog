@@ -1,6 +1,6 @@
 {
   "name": "evenbetterlog",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A small standalone logging module suitable for NodeJS and browser",
   "main": "better_log.js",
   "scripts": {
