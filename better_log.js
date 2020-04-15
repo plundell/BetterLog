@@ -24,14 +24,18 @@
 ;'use strict';
 (function(globalObj){
 	
-	//NOTE: this will not identify script as run in browser if we pass it to browserify first.... 
-    if (typeof module === 'object' && module.exports){
+	//Export from module if available
+    if(typeof module === 'object' && module.exports){
         module.exports = BetterLog;
-        var ENV='terminal'; //guess default... is changed by BetterLog.defaultOptions={env:browser}
-    }else {
-        globalObj.BetterLog=BetterLog;
-        ENV='browser';
+        BetterLog._env='terminal';   //will be overwritten if 'window' is also available vv
     }
+
+    //Set on window if available
+    if(typeof window === 'object'){
+    	window.BetterLog=BetterLog;
+        BetterLog._env='browser'; 
+    }
+
 
 
 
@@ -227,7 +231,7 @@
 		* @return void
 		*/
 		this.throw=function(...args){
-			self.error.apply(self, args).throw(); //will also print if autoPrintLvl<6
+			self.makeError.apply(self, args).exec().throw(); //will also print if autoPrintLvl<6
 		}
 
 
@@ -249,7 +253,7 @@
 		* @return Promise(n/a,<BLE>)
 		*/
 		this.reject=function(...args){
-			var entry=self.error.apply(self, args) //will also print if autoPrintLvl<6
+			var entry=self.makeError.apply(self, args).exec() //will also print if autoPrintLvl<6
 			
 			// return Promise.reject('[@ '+entry.func+'()] '+String(entry.msg)); //2019-03-16: Why only reject with string?? trying to change...
 			return Promise.reject(entry);
@@ -306,7 +310,7 @@
 	}//End of BetterLog constructor
 	
 
-	BetterLog._env=ENV; 
+	
 	BetterLog._BetterLogEntry=BetterLogEntry;
 	
 	BetterLog.varType=varType;
@@ -1490,7 +1494,7 @@
 					stackArr.forEach(obj=>obj.where=BetterLog._sourceMap.lookup(obj.where,true)||obj.where);
 				}
 				if(this.options.hideThisFileStack){
-					removeTopLinesFromThisFile(stackArr);
+					removeTopLinesFromThisFile.call(this,stackArr);
 				}else{
 					stackArr=stackArr(stackArr).filter(obj=>obj.func.includes('BetterLog'))
 				}
@@ -1610,7 +1614,6 @@
 	}
 
 
-	var thisFile;
 	/*
 	* Remove the first lines from the stack that come from this same file. 
 	*
@@ -1619,21 +1622,31 @@
 	*
 	* @param array[object] stackArr
 	* @return array 						Alters and returns live $stackArr
+	* @call(<BetterLog>)
 	*/
 	function removeTopLinesFromThisFile(stackArr){
-		if(!thisFile){
-			var where=parseStackLine(splitStackString(Error().stack)[0]).where;
-			thisFile=where.substr(0,where.indexOf('.js:'))+'.js';
+		if(typeof this.options.hideThisFileStack!='string'){
+			let stack=Error().stack
+				,first=splitStackString(stack)[0]
+				,where=parseStackLine(first).where
+				,i=where.indexOf('.js:')
+			;
+			if(i==-1)
+				i=where.indexOf('.js?:');
+			if(i==-1){
+				console.warn("Could not determine the first filename of this stack:",stack);
+				return stackArr;
+			}
+			this.options.hideThisFileStack=where.substr(0,i)+'.js';
 		}		
 		var i=0,l=stackArr.length;
 		for(i;i<l;i++){
-			if(stackArr[i].where.indexOf(thisFile)!=0)
+			if(stackArr[i].where.indexOf(this.options.hideThisFileStack)!=0)
 				break;
 		}
 		stackArr.splice(0,i);
 		return stackArr;
 	}
-
 
 
 
@@ -2239,7 +2252,7 @@
 
 		
 		//If opted, in browser, add log so we can easily check previous messages
-		if(options.printSelfOnLvl<=this.lvl && BetterLog._env=='browser'){
+		if(options.printSelfOnLvl && options.printSelfOnLvl<=this.lvl && BetterLog._env=='browser'){
 			oneNewline(arr)
 			arr.push(this);
 		}
