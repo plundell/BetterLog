@@ -77,8 +77,10 @@
 		'red':{colorTerm:41,colorBrow:'red'}
 		,'blue':{colorTerm:44,colorBrow:'blue'}
 		,'magenta':{colorTerm:45,colorBrow:'magenta'}
+		,'pink':{colorTerm:105,colorBrow:'pink'}
 		,'green':{colorTerm:42,colorBrow:'green'}
 		,'yellow':{colorTerm:43,colorBrow:'yellow'}
+		,'cyan':{colorTerm:46,colorBrow:'cyan'}
 	}
 
 
@@ -287,7 +289,7 @@
 				args.unshift('note');
 
 			//Now create, colorize, print and return the entry 
-			return self.makeEntry.apply(self,args).highlight(color).exec();
+			return self.makeEntry.apply(self,args).highlight(color).exec('force');
 		}
 
 
@@ -298,13 +300,16 @@
 		* @return n/a
 		* @not_printed
 		*/
-		this.throwCode=function(code){
-			self.makeCodeError(code).throw();
+		this.throwCode=function(code,...args){
+			//If a code and description was previously stored, prepend $args with said description
+			if(self.codes[code])
+				args.unshift(self.codes[code]);
+		
+			self.makeError(...args).throw(code);
 		}
 
 	//done defining bound shortcuts..
 
-	
 
 
 	}//End of BetterLog constructor
@@ -533,9 +538,8 @@
 		this.name=name;
 	}
 
-	Object.defineProperty(BetterLog,'defaultOptions',{enumerable:true,value:{}})
-	Object.defineProperties(BetterLog.defaultOptions,{
-		get:{enumerable:true, value:function getDefaultOptions(){return JSON.parse(JSON.stringify(defaultOptions));}}
+	Object.defineProperty(BetterLog,'defaultOptions',{enumerable:true
+		,get:function getDefaultOptions(){return JSON.parse(JSON.stringify(defaultOptions))}
 		
 		/*
 		* Change default options (which apply as defaults for every instance setup after this is called)
@@ -545,7 +549,7 @@
 		*
 		* @return void
 		*/
-		,set:{enumerable:true, value:function setDefaultOptions(options, override=false){
+		,set:function setDefaultOptions(options, override=false){
 			if(typeof options !='object'){
 				throw new TypeError('Expected object, got: ('+typeof options+')'+String(options));
 			}
@@ -569,7 +573,7 @@
 			}
 
 			return;
-		}}
+		}
 
 	})
 
@@ -795,22 +799,6 @@
 	}
 
 
-
-	/*
-	* Create a BLE with a code previously stored on this instance (or the default ones defined on 
-	* this constructor. Message will be code description if any. 
-	*
-	* @throws <BLE>
-	* @return n/a
-	* @not_printed
-	*/
-	BetterLog.prototype.makeCodeError=function(code, details){
-		var desc='';
-		if(this.codes && this.codes[code])
-			desc=this.codes[code]
-		
-		return this.makeError(desc).setCode(code).append(details);
-	}
 
 
 
@@ -1841,6 +1829,12 @@
 		return this;
 	}
 
+	/*
+	* Set the code of this entry. Optionally only set it if none was set on bubbled err
+	* @param string|number lvl
+	* @return this
+	*/
+
 
 	/*
 	* Assign options for this entry. 
@@ -1923,10 +1917,8 @@
 
 
 	/*
-	* Slice off x rows in the begining of the stack. Also change this.where and this.func
-	*
-	* @param number removeLines 	The number of lines to remove from the stack
-	*
+	* Change the log lvl of this entry. 
+	* @param string|number lvl
 	* @return this
 	*/
 	BetterLogEntry.prototype.changeLvl=function(lvl){
@@ -2053,7 +2045,8 @@
 		if(BetterLog._env=='terminal'){
 			items=items.map(arg=>logVar(arg,100));
 		}
-		this.extra.push.apply(this,items);
+		// this.extra.push(items[0])
+		this.extra.push.apply(this.extra,items);
 		return this;
 	}
 
@@ -2070,36 +2063,40 @@
 	/*
 	* 'Handle an entry', ie. add it to log/syslog, emit it, print it
 	*
-	* @param <BetterLog> asLog 	Optional. Log to add it to/emit from. If omitted the log set on the entry will be used
+	* @secret flag 'force' 	If passed the entry will be handled regardless of level
 	*
 	* @return this
 	*/
-	BetterLogEntry.prototype.exec=function(asLog){
+	BetterLogEntry.prototype.exec=function(){
 
-		//If our log appends the syslog or is a seperate log altogether...
-		if(this.options.appendSyslog){
-			//Add to syslog and use returned 'length' value as id for entry 
-			// entry.id=BetterLog._syslog.push(entry); //changed to vv when we changed syslog to BetterLog
-			this.id=BetterLog._syslog.entries.push(this)-1; 
-			this.log.entries.push(this);
-		}else{
-			this.id=this.log.entries.push(this)-1;
+		//Check that we're not ignoring this lvl...
+		if(arguments[0]=='force' || this.log.options.lowestLvl<=this.lvl){
+
+			//If our log appends the syslog or is a seperate log altogether...
+			if(this.options.appendSyslog){
+				//Add to syslog and use returned 'length' value as id for entry 
+				// entry.id=BetterLog._syslog.push(entry); //changed to vv when we changed syslog to BetterLog
+				this.id=BetterLog._syslog.entries.push(this)-1; 
+				this.log.entries.push(this);
+			}else{
+				this.id=this.log.entries.push(this)-1;
+			}
+
+			//Emit on our log before emitting on syslog so that listening on this log takes
+			//presidence in printing
+			this.log.emit(this); //Filtering on lvl happens inside...
+			if(this.options.appendSyslog)
+				BetterLog._syslog.emit(this); //Filtering on lvl happens inside...
+
+
+			//Possible auto-printing happens AFTER the entry has been emitted. If it's
+			//printed there it won't be printed again...
+			if(this.options.autoPrintLvl && this.lvl>=this.options.autoPrintLvl && this.printed==false)
+				this.print();
+
+			if(this.lvl==6 && this.options.breakOnError)
+				debugger;
 		}
-
-		//Emit on our log before emitting on syslog so that listening on this log takes
-		//presidence in printing
-		this.log.emit(this); //Filtering on lvl happens inside...
-		if(this.options.appendSyslog)
-			BetterLog._syslog.emit(this); //Filtering on lvl happens inside...
-
-
-		//Possible auto-printing happens AFTER the entry has been emitted. If it's
-		//printed there it won't be printed again...
-		if(this.options.autoPrintLvl && this.lvl>=this.options.autoPrintLvl && this.printed==false)
-			this.print();
-
-		if(this.lvl==6 && this.options.breakOnError)
-			debugger;
 	
 
 		return this;
