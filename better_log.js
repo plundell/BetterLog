@@ -84,6 +84,8 @@
 	}
 
 
+
+
 	function getLogLvl(x=3,d=3){
 		return (lvlLookup.hasOwnProperty(x) ? lvlLookup[x].nr : d);
 	}
@@ -105,7 +107,8 @@
 		,name:null //Overrides this.toString(). Gets printed with each message. May be appeneded with interger if not unique
 		,namePrefix:false //Printed before name. Default nothing. Suitable for default options or one-time use, else just use 'name'
 		,breakOnError:false
-		,extraLength:400
+		,msgLength:1000     //The longest printed msg string of an entry    NOTE: in browser objects are printed live, ie. this doesn't apply
+		,extraLength:1000   //The longest printed extra string of an entry   ^^
 
 		,hideInternalStack:true //true==remove stack entries that refers to internal stuff. Only works as static option
 		,rootPath:(typeof process=='object'&&process&&process.cwd?process.cwd():false) //root path that will be replaced by '.' from ALL paths (stack + end of line)
@@ -643,7 +646,7 @@
 			msg.lvl=logLvl;
 			msg.log=this;
 			if(extra.length){
-				msg.extra=msg.extra.concat(extra);
+				msg.addExtra(...extra);
 
 				//Since we've added stuff, the whole thing is no longer printed... However this
 				//will cause re-print of previously printed stuff, so try to avoid adding extras
@@ -749,7 +752,7 @@
 		if(funcOrMsg && typeof funcOrMsg=='string'){
 			//If arg #2 contains spaces, it's a message, else a func name
 			if(funcOrMsg.includes(' ')){
-				entry.extra.push(funcOrMsg);
+				entry.addExtra(funcOrMsg);
 			}else{
 				entry.func=funcOrMsg;
 				entry._options.printFunc=true;
@@ -787,15 +790,13 @@
 			default:
 				expected='(bugbug)'+String(expected); //this should not happen, but best effort...
 		}
-		return this.makeError(`Expected ${expected}, got: `).addExtra(...got).setCode('TypeError');
-		// let msg=`Expected ${expected}, got: `;
-		// if(BetterLog._env=='terminal'){
-		// 	var all=[msg].concat(got.map(arg=>logVar(arg,100)));
-		// }else{
-		// 	all=[msg].concat(got);
-		// }
-		// console.warn(BetterLog._env,all);
-		// return this.makeError.apply(this,all).setCode('TypeError');
+		let msg=`Expected ${expected}, got: `;
+		if(BetterLog._env=='terminal'){
+			var all=[msg].concat(got.map(arg=>logVar(arg,100)));
+		}else{
+			all=[msg].concat(got);
+		}
+		return this.makeError.apply(this,all).setCode('TypeError');
 	}
 
 
@@ -2026,33 +2027,56 @@
 		}
 
 		//If we're still running, add it!
-		this.extra.push(str);
-
-		return this;
+		return this.addExtra(str);
 
 	}
 
 
 	/*
-	* Add one or more items to the .extra array, handling differently for terminal and browser since
-	* you can't see large complex variables in terminal
+	* Add one or more items to the .extra array.
 	*
-	* @params... any
+	* @params any ...items
 	*
 	* @return this
 	*/
 	BetterLogEntry.prototype.addExtra=function(...items){
-		if(BetterLog._env=='terminal'){
-			items=items.map(arg=>logVar(arg,100));
-		}
-		// this.extra.push(items[0])
 		this.extra.push.apply(this.extra,items);
 		return this;
 	}
 
 
 
+	/*
+	* Add a code snippet to the entry and highlight characters around a given position
+	*
+	* @param string snippet 	
+	* @param number strpos 		The starting position to highlight
+	* @opt number count 		Default 1. The number of characters to highlight
+	*
+	* @return this
+	*/
+	BetterLogEntry.prototype.highlightBadCode=function(snippet,start,count=1){
+		if(BetterLog._env=='terminal' && this.options.printColor){
+			snippet=wrapSubstrInBashColor(snippet,start,start+count,101);
+		}else{
+			snippet=snippet.substr(0,start)+'>>>'+snippet.substr(start,count)+'<<<'+snippet.substr(start+count);
+		}
 
+		//Focus in on the highlighted area if needed (ie. so it doesn't get cut when printing)
+		if(snippet.length>this.options.extraLength){
+			//NOTE: we're using the options set on the entry, which means passing another extraLength when printing can't
+			//      make this string longer again
+			let half=this.options.extraLength/2
+			if((start+half)>snippet.length)
+				snippet='...'+snippet.substr(snippet.length-(half*2)); //no dots at end
+			if(half>start)
+				snippet='...'+snippet.substr(start-half,half*2)+'...'; //snippet in the middle, dots on both sides
+			else
+				snippet=snippet.substr(0,half*2)+'...'; //no dots at begining
+		}
+
+		return this.addExtra(snippet);
+	}
 
 
 
@@ -2342,6 +2366,13 @@
 		return colors.map(c=>'\x1b['+c+'m').join('')+str+'\x1b[0m';
 	}
 
+	/*
+	* Wrap substring in bash color codes
+	* @return string
+	*/
+	function wrapSubstrInBashColor(str,start,stop,...colors){
+		return str.substr(0,start)+wrapInBashColor(str.substr(start,stop-start),...colors)+str.substr(stop);
+	}
 
 
 	/*
@@ -2377,11 +2408,19 @@
 
 
 
-	//Based on if we're in terminal or browser, we'll need some special methods. But since that variable may
-	//set set after this instance is created we simply define both for easy lookup when needed
+	/*
+	* Dynamic method to add item to print array. In terminal everything will be converted to printable strings, while in 
+	* browser we want to print live objects as the devtools allow us to explore them
+	*
+	* @param array printArray 	NOTE: this array get's appended
+	* @param mixed item
+	* @opt number len 			The length strings should be limited to. Default 0 => don't limit
+	*
+	* @return void
+	*/
 	var pushItem={
-		browser:function(len,arr,item){arr.push(item);}
-		,terminal:function(len,arr,item){arr.push(typeof item=='object' ? logVar(item,len) : item);}
+		browser:function(printArray,item,len=0){printArray.push(typeof item=='string' ? logVar(item,len): item);}
+		,terminal:function(printArray,item,len=0){printArray.push(typeof item=='object' ? logVar(item,len) : item);}
 	}
 
 
@@ -2391,7 +2430,10 @@
 	* @return $arr 		The same array that was passed in
 	*/
 	function addInfo(arr,pre,code,msg,where,extra,options,extraIndent){
-		var push=pushItem[BetterLog._env].bind(arr,options.extraLength)
+		var push=pushItem[BetterLog._env].bind(this,arr)
+			,xl=options.extraLength //strings in extra can be this long         NOTE: in browser objects are live, ie. not converted to strings, 
+			,ml=options.msgLength //strings in main message can be this long          ie. not subject to this limit
+		;
 
 		//First we combine pre and code
 		pre=String(pre||'')
@@ -2399,12 +2441,12 @@
 			pre+=String(code)+': '
 
 		if(typeof msg=='string')
-			push(arr,pre+msg);	
+			push(pre+msg,ml+pre.length);	
 		else if(pre){
-			push(arr,pre);
-			push(arr,msg);
+			push(pre);
+			push(msg,ml);
 		}else
-			push(arr,msg);
+			push(msg,ml);
 
 		//As long as all we're logging is primitives they can go on the same row, otherwise we want each on it's own row.
 		var useNewline=false;
@@ -2420,11 +2462,11 @@
 						addWhere(where,options,arr);
 					oneNewline(arr,extraIndent);
 					// arr.push(xtra); 
-					push(arr,xtra);
+					push(xtra,xl);
 					useNewline=true;
 				}else{
 					// arr.push(xtra); 
-					push(arr,xtra);
+					push(xtra,xl);
 				}
 			})		
 		}
