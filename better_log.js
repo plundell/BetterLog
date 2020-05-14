@@ -233,12 +233,22 @@
 		/*
 		* Log and throw a <BLE>
 		* @throws <BLE>
-		* @return void
+		* @return n/a
 		*/
 		this.throw=function(...args){
 			self.makeError.apply(self, args).exec().throw(); //will also print if autoPrintLvl<6
 		}
 
+		/*
+		* Like this.throw(), ie. creating and executing a new error, but if an older/bubbled/original error is detected
+		* then that get's thrown instead
+		*
+		* @throws <BLE>
+		* @return n/a
+		*/
+		this.throwOriginal=function(...args){
+			self.makeError.apply(self, args).exec().getFirstError().throw();
+		}
 
 		/*
 		* Similar to this.throw(), but .typeError() is used instead of .error() (which also implies that nothing
@@ -1814,8 +1824,10 @@
 		return null;
 	}
 
+
 	/*
 	* Set the code of this entry. Optionally only set it if none was set on bubbled err
+	* @param string|number lvl
 	* @return this
 	*/
 	BetterLogEntry.prototype.setCode=function(code=null,onlyBackup=false){
@@ -1831,11 +1843,16 @@
 	}
 
 	/*
-	* Set the code of this entry. Optionally only set it if none was set on bubbled err
-	* @param string|number lvl
-	* @return this
+	* Look for the first error by following this.bubble
+	* @return <ble> 	Either this entry, or a previous one 	
 	*/
-
+	BetterLogEntry.prototype.getFirstError=function(){
+		var self=this
+		while(self.bubble){
+			self=self.bubble
+		}
+		return self;
+	}
 
 	/*
 	* Assign options for this entry. 
