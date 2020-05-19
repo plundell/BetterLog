@@ -560,14 +560,13 @@
 		,get:function getDefaultOptions(){return JSON.parse(JSON.stringify(defaultOptions))}
 		
 		/*
-		* Change default options (which apply as defaults for every instance setup after this is called)
+		* Change default options (also changes set options for all logs already setup)
 		*
 		* @param object options
-		* @opt boolean override 	Default false. If true all previously setup instances will have their options overridden
 		*
 		* @return void
 		*/
-		,set:function setDefaultOptions(options, override=false){
+		,set:function setDefaultOptions(options){
 			if(typeof options !='object'){
 				throw new TypeError('Expected object, got: ('+typeof options+')'+String(options));
 			}
@@ -579,16 +578,11 @@
 				delete options.env;
 			}
 
-			//Change the class-wide private variable...
+			//Change the class-wide private variable which will affect future logs being created...
 			Object.assign(defaultOptions,options);
 
-			//If opted, override options set on all previously setup logs...
-			if(override){
-				BetterLog._instances.forEach(log=>Object.assign(log.options,options));
-			}else{
-				//Else always change the already setup syslog's options (since we know it wasn't setup with any custom options)
-				Object.assign(BetterLog._syslog.options,options);
-			}
+			//...but also change all logs already created
+			BetterLog._instances.forEach(log=>Object.assign(log.options,options));
 
 			return;
 		}
