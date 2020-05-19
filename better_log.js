@@ -213,6 +213,11 @@
 
 
 		/*
+		* Alias for .info (so a better log instance can be passed as console...)
+		*/
+		Object.defineProperty(this,'log',{enumerable:false, writable:true, configurable:true, value:this.info});
+
+		/*
 		* @see this.makeTrace()
 		*
 		* @return void 		Like this.trace, this method returns nothing
