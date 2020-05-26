@@ -377,10 +377,10 @@
 	    return map;
 	}
 	
+
+
 	//...then use it to hold all created instances							  
 	BetterLog._instances=BetterMap();
-
-
 
 
 
@@ -2593,7 +2593,7 @@
 	//Setup first log, the syslog!
 	BetterLog._syslog=new BetterLog('_syslog',{appendSyslog:false});
 
-}(typeof window !== 'undefined' ? window : this || {}));
+}(typeof window !== 'undefined' ? window : this || {}) );
 //simpleSourceMap=
 //simpleSourceMap2=
 	
