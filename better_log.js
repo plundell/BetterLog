@@ -2477,7 +2477,7 @@
 	* @return void
 	*/
 	var pushItem={
-		browser:function(printArray,item,len=0){printArray.push(typeof item=='string' ? logVar(item,len): item);}
+		browser:function(printArray,item,len=0){printArray.push(typeof item=='string' ? ((len>0&&item.length>len)?item.substr(0,len)+'...':item): item);}
 		,terminal:function(printArray,item,len=0){printArray.push(typeof item=='object' ? logVar(item,len) : item);}
 	}
 
