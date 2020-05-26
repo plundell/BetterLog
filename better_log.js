@@ -1755,6 +1755,8 @@
 			,_isBetterLogEntry:{value:true}
 			,_rocks:{value:[]} //inverted bubbles, so we can track...
 			,_age:{get:()=>Date.now()-this.timestamp}
+			,'where':{enumerable:true, get:()=>this.stack[0].where||'<unknown whereabouts>'}
+			,'func':{enumerable:true, get:()=>this.stack[0].func||'<unknown function>'}
 		})
 		this.lvl=getLogLvl(lvl,4); //Can be changed later manually before printing...
 		this.msg=msg; 
@@ -1933,10 +1935,21 @@
 
 
 	BetterLogEntry.prototype.setStack=function(errOrStack){
-		this.stack=this.log.getStackArray(errOrStack);
-		// console.log(this.stack[0])
-		this.where=this.stack[0].where
-		this.func=this.stack[0].func
+		//Make sure we have an stack/err since getStackArray() won't be called from here/now
+		errOrStack=errOrStack||(new Error()).stack
+		
+		//Define a getter so we don't have to parse the stack unless it's actually needed...
+		Object.defineProperty(this,'stack',{enumerable:true,configurable:true,get:()=>{
+				let stack=this.log.getStackArray(errOrStack);
+				
+				//On the first call we store it for real (we let it remain configurable so setStack() can
+				//be called again)
+				Object.defineProperty(this,stack,{enumerable:true, configurable:true, value:stack})
+
+				return stack;
+			}
+		})
+
 		return this;
 	}
 
@@ -1948,8 +1961,10 @@
 	* @return this
 	*/
 	BetterLogEntry.prototype.changeWhere=function(removeLines){
-		this.stack.splice(0,removeLines); //remove lines WITHOUT re-creating the array which would remove hidden prop 'original'
-		return this.setStack(this.stack);
+		//Simply remove lines from the stack... since .func and .where are getters they don't need attention
+		this.stack.splice(0,removeLines); 
+
+		return this;
 	}
 
 	/*
@@ -1994,7 +2009,7 @@
 	BetterLogEntry.prototype.addHandling=function(handling,...extra){
 		try{
 			//Get passed in stack or generate one here
-			var stack=this.log.getStackArray((typeof handling=='object' && handling.stack) ? handling.stack:undefined);
+			var stack=this.log.getStackArray((typeof handling=='object' && handling.stack) ? handling.stack:(new Error()).stack);
 
 			// this.handling.unshift({where:where,what:handling,extra:extra}); //Add to top of handling stack
 	 	  //2019-10-10: Changing this to bottom of stack. Thinking: Original error is on top, so any later added 
