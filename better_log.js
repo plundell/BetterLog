@@ -140,19 +140,19 @@
 
 		this.options=Object.assign({},defaultOptions,options);
 
-		//These are 2 ways to uniquely identify a log instance:
-		// 	1. this.unit   arg#1        any      unique       Preferably an object instance (which are unique by def)
-		//  2. this.name   arg#2.name   string   unique       The string that will be printed in each log. Defaults to 
-		//                                                      this.toString()+integer. 
-		if(BetterLog._instances.has(unit)){
+		//There are 2 ways to uniquely identify a log instance:
+		// 	1. this.unit   arg#1        any      Preferably an object instance (which are unique by def)
+		//  2. this.name   arg#2.name   string   The string that will be printed in each log. Defaults to this.toString()+integer. 
+		if(typeof unit!='string' && BetterLog._instances.has(unit)){
 			console.error('Existing BetterLog unit ',unit,BetterLog._instances.get(unit));
 			throw new Error('BetterLog unit already exists (see previous console.error)');
 		}else{
-			this.unit=unit;
-			BetterLog._instances.set(unit,this); //so we can always find it + keep things unique
+			this.unit=unit; 
+			  //^NOTE: will get changed by changeName if it's a string and another options.name was passed, but we set it here so 
+			  //this.toString() in this.changeName() works
 		}
 
-		//Find and set a unique name for this instance
+		//Find and set a unique name for this instance. NOTE: this will also set on _instances
 		this.changeName(this.options.name)
 
 
@@ -542,20 +542,57 @@
 	* @return string 	The name set after this operation
 	*/
 	BetterLog.prototype.changeName=function(name){
+		//Make sure we have a string
 		name=(typeof name=='string'?name:'')||this.toString();
-		if(name!==this.unit && name!==this.name){
-			var base=name,i=0;
-			while(BetterLog._instances.has(name)){
-				i++
-				name=base+i;
-			}
-			BetterLog._instances.aliases.set(name,this.unit)
-			//The reason we use aliases^ instead of a second seperate map is so that you can 
-			//call BetterLog._instances.get(...) with both name and unit. And the reason we
-			//don't use a single map is because that would affect .size() and .forEach()
+		
+		//Bail if the same name is already set, else check if an old alias needs removing
+		if(name==this.name)
+			return name;
+		else if(this.name && BetterLog._instances.aliases.has(this.name))
+			BetterLog._instances.aliases.delete(this.name);
+
+		//NOTE: The reason we use aliases^ instead of a second seperate map is so that you can 
+		//call BetterLog._instances.get(...) with both name and unit. And the reason we
+		//don't use a single map is because that would affect .size() and .forEach()
+
+
+		//If this.unit is a string it needs to get changed too, since both this.unit and this.name should be unique
+		if(typeof this.unit=='string'){
+			if(BetterLog._instances.has(this.unit))
+				BetterLog._instances.delete(this.unit);
+			this.unit='';
 		}
+
+		//Now we need to make sure we have a unique name
+		var base=name,i=0;
+		while(BetterLog._instances.has(name)){
+			i++
+			name=base+i;
+		}
+
+		//Finally we set the name, unit, instance and alias
 		this.name=name;
+		this.unit=this.unit||this.name;
+		if(!BetterLog._instances.has(this.unit))
+			BetterLog._instances.set(this.unit,this);
+		if(this.name!=this.unit)
+			BetterLog._instances.aliases.set(this.name,this.unit)
+
+
+		return this.name;
 	}
+
+
+
+
+
+
+
+
+
+
+
+
 
 	Object.defineProperty(BetterLog,'defaultOptions',{enumerable:true
 		,get:function getDefaultOptions(){return JSON.parse(JSON.stringify(defaultOptions))}
@@ -1687,8 +1724,6 @@
 		stackArr.splice(0,i);
 		return stackArr;
 	}
-
-
 
 
 
