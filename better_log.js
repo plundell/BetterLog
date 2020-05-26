@@ -1083,7 +1083,7 @@
 		if(criteria.match){
 			entries=entries.filter(entry=>{
 				try{
-					return entry.msg.match(criteria.match);
+					return entry.match(criteria.match);
 				}catch(err){
 					return false;
 				}
@@ -1843,6 +1843,16 @@
 		return (obj && typeof obj=='object' && obj.__ble);
 	}
 
+	/*
+	* Attempt to match the json version of this entry
+	*
+	* @param string|<RegExp> strOrRegexp
+	*
+	* @return array|null
+	*/
+	BetterLogEntry.prototype.match=function(strOrRegexp){
+		return JSON.stringify(this).match(strOrRegexp);
+	}
 
 	/*
 	* @return string 	The	code+message+extras of this entry (no where,bubble or handling) 
