@@ -96,6 +96,7 @@
 		,appendSyslog:true
 		,printStackLvl:0 //0==off, the lowest level at which to print stack
 		,printStackLines:0 //0==all, or rather see Error.stackTraceLimit. number of lines of stack to print at most
+		,checkForMarks:true //true => will check for marks produced by BetterLog.markApply()
 		,hideParentStack:false //true==when printing bubbled stacks, remove lines also present it parent stack
 		,printColor:true
 		,printWhere:true //appends each line with file:line:index of log
@@ -593,6 +594,27 @@
 
 
 
+	BetterLog.markApply=function(mark,func,args){
+		//To speed up the matching process we only allow marks to contains numbers...
+		mark=String(mark);
+		if(!mark.match(/^[0-9]+$/))
+			throw new Error("EINVAL. Arg #1 should be a 'mark' containing only [0-9], got: "+mark);
+
+		//...however, for some reason numbers won't show up in the stack the way we need them for this to work, so we 
+		//append '_mark' (but getStackArray() won't include it in it's capture group so entry.stack.mark == $mark)
+		mark+='_mark'
+
+		//Create an object with a distinctive name... (getStackArray() looks for it later)
+		var obj={};
+
+		//...then dynamically set a method on the object named $mark which will  cause $mark to show 
+		//up in all stack traces nested below this call
+		obj[mark]=()=>func.apply(this,args)
+
+
+		//Now call!
+		return obj[mark]()
+	}
 
 
 
@@ -1418,10 +1440,10 @@
 	/*
 	* @param <Error>|undefined errOrStack		An error who's stack to use, else one will be generated here
 	*
-	* @return object{where:string, func:string, stack:array}
+	* @return array[{where,func}...] || array[{empty:true}]  Array of objects. Non-enum prop 'original' contains original stack
 	*/
 	BetterLog.prototype.getStackArray=function(errOrStack){
-		var stackArr,stackStr;
+		var stackArr,stackStr,mark;
 		let nostack='[original stack lost]';
 		if(Array.isArray(errOrStack) && typeof errOrStack[0]=='object'){
 			//We assume that an array passed in has already gone through this process...
@@ -1455,10 +1477,27 @@
 			//Turn strings into array of objects
 			stackArr=stackArr.map(parseStackLine)
 
+			//Optionally check for marks produced by BetterLog.markApply()
+			if(this.options.checkForMarks){
+				//NOTE: only the most recent mark is found
+				stackArr.find(obj=>{
+					let m=obj.func.match(/\[as ([0-9]+)_mark\]/)
+					if(m){
+						//Save it for and set it vv when setting original
+						mark=m[1]
+						return true;
+					}
+					return false;
+				})
+			}
+
 // if(a)console.log('BEFORE:',stackArr);
 			//Now handel depending on env. The first (only) job here is to remove references to this file
 			if(BetterLog._env=='terminal'){
-				stackArr=stackArr.filter(obj=>obj.where.includes(__filename)==false)
+
+				//Remove all calls produced by this file
+				stackArr=stackArr.filter(obj=>obj.where.includes(__filename)==false);
+				
 // if(a)console.log('AFTER FIRST FILTER:',stackArr);
 				//Optionally remove stack entries that refer to internal modules and have little informative
 				//value to a developer of other modules
@@ -1500,7 +1539,10 @@
 		}
 
 		//for debug purposes, save the original stack. (NOTE: if you change here, also change in handleSyntaxErrorStack())
-		Object.defineProperty(stackArr,'original',{value:stackStr||nostack});
+		Object.defineProperties(stackArr,{
+			'original':{value:stackStr||nostack}
+			,'mark':{value:mark}
+		});
 
 		//Always make sure there is at least on one item in stack, that way we don't have to worry about errors
 		if(!stackArr.length)
