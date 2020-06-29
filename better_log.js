@@ -941,6 +941,7 @@
 
 	/*
 	* Remove a listener
+	* @param number id 		The id returned by .listen()
 	* @return void
 	*/
 	BetterLog.prototype.ignore=function(id){
@@ -967,20 +968,17 @@
 	*
 	* @param <BetterLog> anotherLog 	Another instance of BetterLog
 	*
-	* @return void
+	* @return number 	@see anotherLog.listen()
 	*/
 	BetterLog.prototype.extend=function(anotherLog){
 		if(!BetterLog._isLog(anotherLog)||anotherLog===this)
 			throw new TypeError("Expected another instance of BetterLog, got: "+logVar(anotherLog));
 
 		var self=this;
-		anotherLog.listen(function extend(entry){
-			// console.warn("EXTENDING LOG ENTRY:",entry,this,self)
+		return anotherLog.listen(function extend(entry){
 			self.entries.push(entry);
 			self.emit(entry);
 		})
-		// console.warn("AAAAAAAA LISTENING",this,anotherLog);
-		return;
 	}
 
 
@@ -1179,19 +1177,13 @@
 
 
 
-
-
-
-
-
-
-
-
-
 	/*
 	* Utility function, gives more descriptive type of variable
 	*
-	* @return string
+	* @return string     Beyond the regular 
+	*						object,bigint,symbol,string,number,boolean,function,undefined 
+	*					it can also return
+	*						null,array,ble,error,promise,nodelist,node
 	*/
 	function varType(v){
 		if(typeof v === 'object'){
@@ -1224,25 +1216,33 @@
 			
 		} else {
 			return typeof v
+			//Can return: bigint,symbol,string,number,boolean,function,undefined
 		}
 	}
 
 	/*
-	* Turn any variable into a log:able string
+	* Turn any variable into a log:able string, prepended by the type of the variable
+	*
+	* @param any v 	            The variable to log
+	* @opt number maxLength     The max number of characters of the resulting string
+	* @opt flag 'noType'        Don't prenend the type
+	* @opt number total 		Used internally. 
 	* 
 	* @return string 	
 	*/
 	function logVar(v,maxLength=300,...optional){
-		if(optional.length==1 && typeof optional[0]=='number'){
-			var total=optional[0]
-		}
-		var noType=total||optional.includes('noType');
+	//2020-06-11: It seems errors thrown in here, like by this faulty line:
+	// 	var total=optional.first(opt=>typeof opt=='number');
+	// cause the "TypeError: stack.startsWith is not a function" node bug...
+		var total=optional.find(opt=>typeof opt=='number');
+		var noType=typeof total=='number' || optional.includes('noType');
+		
 		var type=BetterLog.varType(v);
-		var printType=type;
+		var printType='<'+type+'>';
 		switch(type){ 
 			case 'undefined':
 			case 'null':
-				return '<'+printType+'>';
+				return printType;
 			case 'ble':
 				return `<(ble)${v.toString()}>`;
 			case 'error':
@@ -1323,8 +1323,8 @@
 
 		if(noType)
 			return v
-
-		return '('+printType+')'+v;
+		else
+			return printType+v
 	}
 	
 
@@ -1475,11 +1475,12 @@
 
 
 	/*
-	* @param <Error>|undefined errOrStack		An error who's stack to use, else one will be generated here
+	* @opt <Error>|string|array errOrStack		An error who's stack to use, or just the .stack string, or an array which
+	*											has previously been returned by this method. If omitted one will be generated here. 
 	*
 	* @return array[{where,func}...] || array[{empty:true}]  Array of objects. Non-enum prop 'original' contains original stack
 	*/
-	BetterLog.prototype.getStackArray=function(errOrStack){
+	BetterLog.prototype.getStackArray=function(errOrStack=undefined){
 		var stackArr,stackStr,mark;
 		let nostack='[original stack lost]';
 		if(Array.isArray(errOrStack) && typeof errOrStack[0]=='object'){
@@ -1498,13 +1499,14 @@
 			else
 				stackStr=Error().stack;
 
-// var a;
+
 			//SyntaxError and ReferenceError are different...
-			if(stackStr.match('SyntaxError: ')){
+			if(stackStr.startsWith('SyntaxError: ')){
 				return handleSyntaxErrorStack(stackStr);
-			}else if(stackStr.match('ReferenceError: ')){
-// a=true
+			}else if(stackStr.startsWith('ReferenceError: ')){
 				stackArr=handleReferenceErrorStack(stackStr);
+			}else if(stackStr.startsWith('Error: Cannot find module')){
+				stackArr=handleModuleNotFoundStack(stackStr);
 			}else{
 				//Now we either have an array or a string, the later must become the former
 				stackArr = splitStackString(stackStr);
@@ -1528,14 +1530,12 @@
 				})
 			}
 
-// if(a)console.log('BEFORE:',stackArr);
 			//Now handel depending on env. The first (only) job here is to remove references to this file
 			if(BetterLog._env=='terminal'){
 
 				//Remove all calls produced by this file
 				stackArr=stackArr.filter(obj=>obj.where.includes(__filename)==false);
 				
-// if(a)console.log('AFTER FIRST FILTER:',stackArr);
 				//Optionally remove stack entries that refer to internal modules and have little informative
 				//value to a developer of other modules
 				if(this.options.hideInternalStack){
@@ -1555,7 +1555,6 @@
 						return true;
 					})
 				}
-// if(a)console.log('AFTER SECOND FILTER:',stackArr);
 				//Now either use filename only or replace rootPath
 				if(this.options.fileOnly)
 					stackArr.forEach(line=>line.where=line.where.slice(line.where.lastIndexOf('/')+1))
@@ -1657,6 +1656,44 @@
 		}
 	}
 
+
+	/*
+	* These stacks normally look like this:
+	*   Error: Cannot find module '/home/buck/Documents/Software/Q/apps/q-ffmpeg//home/buck/Documents/Software/Q/apps/q-ffmpeg/ffmpeg.pipe.js'
+	*	Require stack:
+	*	- /home/buck/Documents/Software/Q/qmaster/src/appsd.js
+	*	    at Function.Module._resolveFilename (internal/modules/cjs/loader.js:780:15)
+	*	    at Function.Module._load (internal/modules/cjs/loader.js:685:27)
+	*	    at Module.require (internal/modules/cjs/loader.js:838:19)
+	*	    at require (internal/modules/cjs/helpers.js:74:18)
+	*	    at tryRequire (/home/buck/Documents/Software/Q/qmaster/src/appsd.js:386:10)
+	*	    at loadApp (/home/buck/Documents/Software/Q/qmaster/src/appsd.js:403:16)
+	*	    at initApps (/home/buck/Documents/Software/Q/qmaster/src/appsd.js:356:19)
+	* Yes, the stack actually includes the error too. In this case the first line we actually want is tryRequire()
+	*
+	* @param string
+	* @return array
+	*/
+	function handleModuleNotFoundStack(str){
+		var arr=splitStackString(str); //removes 1st line that contains the error
+		arr.shift(); //remove the line that says 
+
+		//The next line says Require stack:', then I'm guessing there may be several of the next row (those starting with -) 
+		//because the error has a matching prop .requireStack:[]. Then follows a few internal lines that we also don't want. 
+		//In fact the first line we one is the one AFTER that which contains...
+		let l=arr.length,i=0;
+		while(arr.length){
+			let line=arr.shift();
+			if(line.match(/^\s+at require \(/))
+				break;
+		}
+
+		//As a backup, if we removed all the lines, make an educated guess that the first 7 lines have to go
+		if(!arr.length)
+			return splitStackString(str).slice(7); //start from line nr 8
+		else 
+			return arr;
+	}
 
 	/*
 	* @param string line		A line single line from the stack which contains calling function, file, line
@@ -1979,24 +2016,60 @@
 	}
 
 
+	/*
+	* Set (or change) the stack for this entry
+	*
+	* @param <Error>|string|array errOrStack 	@see getStackArray
+	*
+	* @return this
+	*/
 	BetterLogEntry.prototype.setStack=function(errOrStack){
 		//Make sure we have an stack/err since getStackArray() won't be called from here/now
 		errOrStack=errOrStack||(new Error()).stack
 		
 		//Define a getter so we don't have to parse the stack unless it's actually needed...
-		Object.defineProperty(this,'stack',{enumerable:true,configurable:true,get:()=>{
-				let stack=this.log.getStackArray(errOrStack);
-				
-				//On the first call we store it for real (we let it remain configurable so setStack() can
-				//be called again)
-				Object.defineProperty(this,stack,{enumerable:true, configurable:true, value:stack})
+		var futureStack;
+		Object.defineProperty(this,'stack',{enumerable:true,configurable:true
+			,get:()=>{
+				if(!futureStack)
+					futureStack=this.log.getStackArray(errOrStack);
+				return futureStack
 
-				return stack;
+			//2020-05-27: why does vv not work? can't change the descriptor... ^works for now, but it doesn't feel right...
+				// let stack=this.log.getStackArray(errOrStack);
+				
+				// //On the first call we store it for real 
+				// Object.defineProperty(this,stack,{enumerable:true, configurable:true, writable:true, value:stack})
+
+				// return stack;
 			}
 		})
 
 		return this;
 	}
+
+	/*
+	* Append a stack to the currently set stack. This can be good when working with async functions who normally only have a 
+	* stack of 2 items, eg:
+	*  [Stack] 
+    *  | foobar (index.js:371:9) 
+    *  | processTicksAndRejections (task_queues.js:93:5)
+	*
+	* @param <Error>|string|array errOrStack 	@see getStackArray
+	*
+	* @return this
+	*/
+	BetterLogEntry.prototype.appendStack=function(errOrStack){
+		//Start by parsing the new stack
+		var newStack=this.log.getStackArray(errOrStack);
+
+		//Then append the old stack
+		this.setStack(this.stack.concat(newStack));
+
+		return this;
+
+	}
+	
 
 	/*
 	* Slice off x rows in the begining of the stack. Also change this.where and this.func
@@ -2204,6 +2277,9 @@
 
 	/*
 	* 'Handle an entry', ie. add it to log/syslog, emit it, print it
+	*
+	* NOTE: An entry can be emitted and appended multiple times, but won't be printed multiple times. To force a re-print
+	*		then use this.print() instead
 	*
 	* @secret flag 'force' 	If passed the entry will be handled regardless of level
 	*
@@ -2416,7 +2492,7 @@
 	* Print the entry.
 	*
 	* NOTE: This method prints the entry even if it's been previously printed
-	* NOTE2: This method group-prints all bubbles that have not yet been printed
+	* NOTE2: This method group-prints all bubbles that have not yet been printed, while referencing those that have
 	*
 	* @return this
 	*/
