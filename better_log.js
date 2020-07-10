@@ -213,6 +213,8 @@
 			})
 
 
+
+
 		/*
 		* Alias for .info (so a better log instance can be passed as console...)
 		*/
@@ -223,11 +225,34 @@
 		*
 		* @return void 		Like this.trace, this method returns nothing
 		*/
-		this.traceFunc=function(...args){
+		this.traceFunc=function(){
 			try{
 				if(self.options.lowestLvl==1){
 					//Make a trace, then proceed like regular logging, appending it, emitting it, printing it...
-					self.makeTrace.apply(self,args).exec();
+					self.makeTrace.apply(self,arguments).exec();
+				}
+			}catch(err){
+				console.error('BUGBUG',err);
+			}
+			return;
+		}
+
+		/*
+		* Works like this.trace but it adds the 'from' part
+		*
+		* @return void 		Like this.trace, this method returns nothing
+		*/
+		this.traceFrom=function(msg,...extra){
+			try{
+				if(self.options.lowestLvl==1){
+					//Allow the use of 'to' instead
+					let preposition='from', i=extra.indexOf('to');
+					if(i>-1){
+						extra.splice(i,1);
+						preposition='to';
+					}
+					//Make a trace, then proceed like regular logging, appending it, emitting it, printing it...
+					self.makeEntry.apply(self,[1,msg].concat(extra)).addFrom(preposition).exec();
 				}
 			}catch(err){
 				console.error('BUGBUG',err);
@@ -499,9 +524,9 @@
 
 	BetterLog.prototype._isLog=BetterLog._isLog=function(x){
 		if(x && typeof x=='object' && x.constructor.name=='BetterLog'){
-			if(!(x instanceof BetterLog)){
-				BetterLog._syslog.warn("BetterLog has been exported at least twice:",BetterLog._syslog, x.constructor._syslog)
-			}
+			// if(!(x instanceof BetterLog)){
+			// 	BetterLog._syslog.warn("BetterLog has been exported at least twice:",BetterLog._syslog, x.constructor._syslog)
+			// }
 			return true;
 		}else{
 			return false;
@@ -708,9 +733,9 @@
 			lvl=3;
 		}
 
-		//If msg is a BLE, just...
+		//If msg is a BLE, just change .lvl, .log and add .extras, but don't create a new instance
 		if(BetterLogEntry._isBLE(msg)){
-			//...change lvl, log and add extras....
+			
 			msg.lvl=logLvl;
 			msg.log=this;
 			if(extra.length){
@@ -723,38 +748,34 @@
 			}
 			return msg;
 
-		}else if(msg instanceof Error){
-			if(msg instanceof SyntaxError){
-				var description='',arr=msg.stack.split(/\r\n|\r|\n/),i,l=arr.length;
-				for(i=1;i<l;i++){
-					if(arr[i].match('SyntaxError: '))
-						break;
-					description+='\n'+arr[i] //if we put \n after we get correct newlines, but we get problems with indents... try it...
-				}
-				extra.unshift(description);
-			}
+	//2020-07-10: trying to place these 2 cases vv in BLE constructor??
+		// }else if(msg instanceof Error){
+
+		// 	if(msg instanceof SyntaxError){
+		// 		extra.unshift(getSyntaxErrorDescription(msg));
+		// 	}
 				
-			var entry=new BetterLogEntry(this,lvl,msg.message,extra,msg.stack);	
-			if(msg.code)
-				entry.setCode(msg.code);
-			else if(msg.name!='Error')
-				entry.setCode(msg.name);
+		// 	var entry=new BetterLogEntry(this,lvl,msg.message,extra,msg.stack);	
+		// 	if(msg.code)
+		// 		entry.setCode(msg.code);
+		// 	else if(msg.name!='Error')
+		// 		entry.setCode(msg.name);
 			
-			return entry;
+		// 	return entry;
 
-		//If we have a former JSON str, turn back into entry. 
-		}else if(isJsonBLE(msg)){
-			// console.log('BLE json about to be converted:',msg);
-			var entry=new BetterLogEntry(this,lvl,msg.msg,msg.extra.concat(msg.bubble,extra),msg.stack);
-				//^by adding bubble to extra array it automatically gets passed back to this function by BLE constructor
+		// //If we have a former JSON str, turn back into entry. 
+		// }else if(isJsonBLE(msg)){
+		// 	// console.log('BLE json about to be converted:',msg);
+		// 	var entry=new BetterLogEntry(this,lvl,msg.msg,msg.extra.concat(msg.bubble,extra),msg.stack);
+		// 		//^by adding bubble to extra array it automatically gets passed back to this function by BLE constructor
 			
-			//Set props that can't be passed to constructor
-			entry.code=msg.code;
-			entry.timestamp=msg.timestamp
-			entry.handling=msg.handling
-			entry.printed=extra.length?false:msg.printed //like above, if we've added to extra, reset print
+		// 	//Set props that can't be passed to constructor
+		// 	entry.code=msg.code;
+		// 	entry.timestamp=msg.timestamp
+		// 	entry.handling=msg.handling
+		// 	entry.printed=extra.length?false:msg.printed //like above, if we've added to extra, reset print
 
-			return entry;
+		// 	return entry;
 
 		} else {
 			//...else create a new one
@@ -808,9 +829,7 @@
 		}else{
 			//Turn the args array into a string that can be logged/stored without worrying
 			//that it'll take up space or change later
-			args=Object.values(args).map(arg=>logVar(arg,40));
-			var argStr=args.length==0 ? ' void ' :args.join(' , '); 
-			logStr=`( ${argStr} )`;
+			logStr='( '+(args.length==0?' void ':Object.values(args).map(arg=>logVar(arg,50)).join(' , '))+' )';
 		}
 			
 		//Then just like with regular logging, create the this...
@@ -1192,6 +1211,9 @@
 			}
 			switch(v.constructor.name){
 				case 'Object':
+					if(v.hasOwnProperty('callee') && v.hasOwnProperty('length') && Object.getOwnPropertySymbols(v).map(String)=='Symbol(Symbol.iterator)'){
+						return 'arguments';
+					}
 					return 'object';
 				case 'Array':
 					return 'array';
@@ -1280,6 +1302,10 @@
 				
 				break;
 
+			case 'arguments':
+				printType='<arguments:'+v.length+'>'
+				v=Object.values(v);
+				//let fall through
 			case 'array':
 				// console.log('going to make array to string length',maxLength)
 				v=makeJsonLikeString(v,maxLength,type,total);
@@ -1314,9 +1340,10 @@
 
 
 		//Handle too long
-		if(maxLength&&v.length>maxLength &&type!='object'&&type!='array'){
+		if(maxLength&&(v.length>maxLength) &&type!='object'&&type!='array'&&type!='arguments'){
+			 //^no need to worry about objects etc wince they have been taken care of by makeJsonLikeString()
 			let m=v.match(/([\}\]\)"])$/);
-			v=v.slice(0,maxLength)+'...';
+			v=v.substr(0,maxLength-3)+'...';
 			if(m)
 				v+=m[1]
 		}
@@ -1327,8 +1354,7 @@
 			return printType+v
 	}
 	
-
-
+                            
 
 
 	/*
@@ -1347,14 +1373,18 @@
 		try{
 			var str;
 			if(total){
+				//this implies we're somewhere nested...
 				if(total>(maxLength*5)){
 					return String(obj); //just make sure we have something to write after a key...
 				}else if(total>maxLength*3){
 					return JSON.stringify(obj); //ignore hidden stuff or method
 				}
 			}else if(maxLength<51){
-					str=JSON.stringify(obj);
-					return str.substr(0,maxLength-4)+'...'+str.substr(-1);
+				//this implies we're at the top level
+				str=JSON.stringify(obj);
+				if(str.length>maxLength)
+					str=str.substr(0,maxLength-4)+'...'+str.substr(-1);
+				return str;
 			}
 		}catch(err){
 			//see ^
@@ -1367,8 +1397,13 @@
 			//so we manually loop everything in the first level and stringify it, setting it or any errors on a 
 			//temp object...
 			var keys=Object.getOwnPropertyNames(obj);
-			if(type=='array')
-				keys.splice(keys.indexOf('length'),1)//ignore the 'length' prop on arrays
+			if(type!='object'){
+				keys.splice(keys.indexOf('length'),1)//ignore the 'length' prop on arrays and arguments
+				let i=keys.indexOf('callee')
+				if(i>-1)
+					keys.splice(i,1);
+			}
+
 			var temp={},over=[],extra=0,i=0,l=keys.length,even=Math.floor(maxLength/l);
 			for(i;i<l;i++){
 				let key=keys[i];
@@ -1416,10 +1451,15 @@
 			var add=(key)=>{
 				if(!obj.propertyIsEnumerable(key))
 					str+='*'
-				str+=`${key}:${temp[key]}, `;
+				if(!String(temp[key]).startsWith(key)) //__proto__ won't be a string
+					str+=`${key}:`
+				str+=`${temp[key]}, `;
 			}
 			//Now build a JSON-like string from the parts
-			if(type=='array'){
+			if(type=='object'){
+				str='{';
+				keys.forEach(key=>add(key))
+			}else{
 				str='[';
 				keys.forEach(key=>{
 					if(!isNaN(Number(key))){
@@ -1428,9 +1468,6 @@
 						add(key)
 					}
 				})
-			}else{
-				str='{';
-				keys.forEach(key=>add(key))
 			}
 			
 			if(rest)
@@ -1438,7 +1475,7 @@
 			else
 				str=str.replace(/, $/,'');
 
-			str+=(type=='array' ? ']' : '}');
+			str+=(type=='object' ? '}' : ']');
 
 			return str;
 
@@ -1500,9 +1537,9 @@
 				stackStr=Error().stack;
 
 
-			//SyntaxError and ReferenceError are different...
-			if(stackStr.startsWith('SyntaxError: ')){
-				return handleSyntaxErrorStack(stackStr);
+			//Some errors need special handling...
+			if(stackStr.includes('SyntaxError:') && !stackStr.startsWith('Error')){
+				stackArr=handleSyntaxErrorStack(stackStr);
 			}else if(stackStr.startsWith('ReferenceError: ')){
 				stackArr=handleReferenceErrorStack(stackStr);
 			}else if(stackStr.startsWith('Error: Cannot find module')){
@@ -1511,10 +1548,11 @@
 				//Now we either have an array or a string, the later must become the former
 				stackArr = splitStackString(stackStr);
 			}
-		// console.log(stackArr);
 			
+			//NOTE: duplicate lines are handled when we print...
+
 			//Turn strings into array of objects
-			stackArr=stackArr.map(parseStackLine)
+			stackArr=stackArr.map(parseStackLine); //protip: the original string is kept in line.orig
 
 			//Optionally check for marks produced by BetterLog.markApply()
 			if(this.options.checkForMarks){
@@ -1530,6 +1568,7 @@
 				})
 			}
 
+
 			//Now handel depending on env. The first (only) job here is to remove references to this file
 			if(BetterLog._env=='terminal'){
 
@@ -1539,22 +1578,9 @@
 				//Optionally remove stack entries that refer to internal modules and have little informative
 				//value to a developer of other modules
 				if(this.options.hideInternalStack){
-					stackArr=stackArr.filter((obj,i)=>{
-						//always keep first line of stack
-						if(i===0)
-							return true;
-						if(obj.where.includes('internal/modules'))
-							return false;
-						if(obj.where.indexOf('vm.js:')==0)
-							return false;
-						if(obj.where.indexOf('module.js:')==0)
-							return false;
-						if(obj.where.includes('bootstrap_node.js:'))
-							return false;
-						
-						return true;
-					})
+					stackArr=removeInternalStack(stackArr);
 				}
+
 				//Now either use filename only or replace rootPath
 				if(this.options.fileOnly)
 					stackArr.forEach(line=>line.where=line.where.slice(line.where.lastIndexOf('/')+1))
@@ -1587,6 +1613,33 @@
 		return stackArr
 	}
 	
+
+	/*
+	* Remove lines from stack that refer to internal stuff
+	*
+	* @param array(object) stackArray
+	*
+	* @return array
+	*/
+	function removeInternalStack(stackArr){
+		return stackArr.filter((obj,i)=>{
+			//always keep first line of stack
+			if(i===0)
+				return true;
+			if(obj.where.startsWith('internal/'))
+				return false;
+			if(obj.where.startsWith('vm.js:'))
+				return false;
+			if(obj.where.startsWith('module.js:'))
+				return false;
+			if(obj.where.includes('bootstrap_node.js:'))
+				return false;
+			
+			return true;
+		})
+	}
+
+
 	/*
 	* NOTE: The returned array from this method DOES NOT get further processed by getStackArray(), as such
 	*		we add the same 'original' prop to it like would otherwise have been done by ^
@@ -1594,10 +1647,33 @@
 	* @return array[object]
 	*/
 	function handleSyntaxErrorStack(str){
-		var stackArr = str.split(/\r\n|\r|\n/)
-		stackArr=[{func:'unknown', where:stackArr[0]}];
-		Object.defineProperty(stackArr,'original',{value:str});
-		return stackArr;
+		try{
+			var stackArr = str.split(/\r\n|\r|\n/);
+			
+			//The first line contains where the syntax error was detected, then a few lines of garbage, then the rest...
+			var skip=true;
+			stackArr=str.split(/\r\n|\r|\n/)
+				.map((line,i,arr)=>{
+					// console.log(i,line);
+					if(i==0 || skip==false){
+						return line.trim();
+					}else{
+						//we ignore lines until (including) the line that explains the error...
+						if(line.includes('SyntaxError:')){
+							skip=false;
+						}
+						return ''; //empty line implies we skip it
+					}
+				})
+				.filter(line=>line) //get rid of empty lines
+			;
+
+			Object.defineProperty(stackArr,'original',{value:str});
+			return stackArr;
+		}catch(err){
+			console.error(str);
+			return [];
+		}
 	}
 
 
@@ -1702,25 +1778,28 @@
 	* @no_throw
 	*/
 	function parseStackLine(line){
+		var obj={where:'unknown', func:'unknown'};
 		try{
 			if(!line)
-				return {where:'unknown', func:'unknown'};
-			
+				throw 'sss'
+
 			line=line.replace(/^\s*at /,'').trim();
 
 			var s=line.indexOf('(');
+			obj.func=line.substring(0,s-1);//calling func
+
 			var w=line.substring(s+1);
-
-
-			return obj={
-				where:(w.substring(w.length-1)==')' ? w.substring(0,w.length-1) : w) //fileline
-				,func:line.substring(0,s-1)//calling func
-			}
+			obj.where=(w.substring(w.length-1)==')' ? w.substring(0,w.length-1) : w); //fileline
+			
 
 		}catch(err){
-			return {where:'unknown', func:'unknown'};
+			obj.orig=line;
 		}
+
+		return obj
 	}
+
+
 
 	function splitStackString(stackStr){
 		return stackStr.split(/\r\n|\r|\n/) //Turn into array (windows and unix compatible)
@@ -1764,9 +1843,61 @@
 
 
 
+	/*
+	* Remove duplicate lines from a stack. 
+	*
+	* NOTE: this should be called when printing
+	*
+	* @param array[object] stackArr 	
+	* @return array
+	*/
+	function removeDuplicateLines(stackArr){
+		var last,count=1,output=[],i=0,len=stackArr.length;
+		for(i; i<len;i++){
+			if(last){
+				if(last.orig){
+					if(stackArr[i].orig==last.orig){
+						//If this line is the same as the last, increase the count, then continue so we DON'T include this line in the output
+						count++;
+						continue;
+					}
+				}else if(stackArr[i].func==last.func && stackArr[i].where==last.where){
+					count++;
+					continue;
+				}
 
+				if(count>1){
+					//Lines are not the same but we have a count, that means the last line was the last of a series of duplicates, so set 
+					//a count on it, then reset the count
+					last.repeat=count;				
+					count=1;
+				}
+			}
+			//Prepare for next loop by storing the current item as last AND appending it to the output...
+			last=stackArr[i];
+			output.push(last);
+		}
+		//After the loop we may still have a count because the builtin stack wasn't long enoug... 
+		if(count>1)
+			last.repeat=count
 
+		return output;
+	}
 
+	/*
+	* SyntaxErrors contain a bit that describes where the syntax error was detected... get that bit
+	* @param <SyntaxError> err
+	* @return string
+	*/
+	function getSyntaxErrorDescription(err){
+		var description='',arr=err.stack.split(/\r\n|\r|\n/),i,l=arr.length;
+		for(i=1;i<l;i++){
+			if(arr[i].match('SyntaxError: '))
+				break;
+			description+='\n'+arr[i] //if we put \n after we get correct newlines, but we get problems with indents... try it...
+		}
+		return description;
+	}
 
 
 
@@ -1834,13 +1965,44 @@
 		this.msg=msg; 
 		this.extra=(Array.isArray(extra)?extra:(extra!=undefined?[extra]:[]));
 		//NOTE: these 5 props ^^ are defined first so they show up first in Chrome DevTools when expanding entries in console...
-
+		
 		this.timestamp=Date.now();
 		this.handling=[]; //call this.addHandling() will append this list. NOT for bubbling up.
-		this.log=(BetterLog._isLog(log) ? log : BetterLog._syslog);
-		this.setStack(stack); //sets 'stack', 'func' and 'where' on this entry
 		this.printed=false;
-		
+
+		//If an error was passed in as main message...
+		if(msg instanceof Error){
+			this.msg=msg.message;
+
+			if(msg instanceof SyntaxError)
+				this.extra.unshift(getSyntaxErrorDescription(msg));
+				
+			if(msg.code)
+				this.setCode(msg.code);
+			else if(msg.name!='Error')
+				this.setCode(msg.name);
+
+			stack=msg.stack; //same handling as passed in stack vv 
+
+		}else if(isJsonBLE(msg)){
+			this.msg=msg.msg;
+
+			//Before setting 'extra' vv, if any more were passed in here ^, reset print...
+			this.printed=this.extra.length?false:msg.printed
+
+			this.extra=msg.extra.concat(msg.bubble,extra); //the bubble will be moved out of extra vv, ie. same handling as everything else
+
+			this.setCode(msg.code);
+			this.timestamp=msg.timestamp
+			this.handling=msg.handling
+
+			stack=msg.stack; //same handling as passed in stack vv 
+		}
+
+		this.log=(BetterLog._isLog(log) ? log : BetterLog._syslog);
+
+		this.setStack(stack); //stores the $stack, but doesn't actually process until it's needed (this is also where .func and .where comes from)
+
 		this.bubble=null;
 		var i;
 		for(i=0;i<this.extra.length;i++){
@@ -1852,7 +2014,7 @@
 					this.bubble=this.extra.splice(i,1)[0];
 					// this.code=this.bubble.code; //code bubbles up as well //2019-11-05: see vv
 				}else if(x instanceof Error || isJsonBLE(x)){
-					this.bubble=this.log.makeEntry(x.lvl||6,this.extra.splice(i,1)[0]);
+					this.bubble=new BetterLogEntry(this.log, x.lvl||6, this.extra.splice(i,1)[0]);
 					// this.code=this.bubble.code; //2019-11-05: Doesn't make sense to bubble, we can still get it with getCode()
 				}
 
@@ -1865,7 +2027,23 @@
 			}
 		}
 
-		return this;
+
+		//There is a bug in node (version?) which throws 'TypeError: stack.startsWith is not a function' in some async cases... 
+		if(this.code=='TypeError' && this.msg.startsWith('stack.startsWith is not a function')){
+			this.setCode('BUGBUG')
+			this.msg="Node bug 'TypeError: stack.startsWith is not a function' caused by something on this line";
+			
+			//For this to show the right location, internal lines need to be removed...
+			if(!this.log.options.hideInternalStack)
+				this.stack=removeInternalStack(this.stack);
+			
+			//removeInternalStack() leaves the first line... remove it and set .where and .func at the same time
+			this.changeWhere(1);
+			
+		} else if(this.code=='RangeError' && this.msg.startsWith('Maximum call stack size')){
+			this.setStack(this.stack.slice(this.stack.length-10));
+		}
+
 
 	}//end of BetterLogEntry
 	BetterLogEntry.prototype=Object.create(Error.prototype); 
@@ -1874,9 +2052,9 @@
 //			  if 'err instanceof Error'
 	BetterLogEntry.prototype._isBLE=BetterLogEntry._isBLE=function(x){
 		if(x && typeof x=='object' && x.constructor.name=='BetterLogEntry' && typeof x.changeWhere=='function'){
-			if(x.log && !(x.log instanceof BetterLog)){
-				BetterLog._syslog.warn("BetterLog has been exported at least twice:",BetterLog._syslog, x.log.constructor._syslog)
-			}
+			// if(x.log && !(x.log instanceof BetterLog)){
+			// 	BetterLog._syslog.warn("BetterLog has been exported at least twice:",BetterLog._syslog, x.log.constructor._syslog)
+			// }
 			return true;
 		}else{
 			return false;
@@ -1914,6 +2092,10 @@
 	function isJsonBLE(obj){
 		return (obj && typeof obj=='object' && obj.__ble);
 	}
+
+
+
+
 
 	/*
 	* Attempt to match the json version of this entry
@@ -2072,7 +2254,7 @@
 	
 
 	/*
-	* Slice off x rows in the begining of the stack. Also change this.where and this.func
+	* Slice off x rows in the begining of the stack. Also affects this.where and this.func (which are getters)
 	*
 	* @param number removeLines 	The number of lines to remove from the stack
 	*
@@ -2088,19 +2270,25 @@
 	/*
 	* Add 'from ${stack[1]}' to this entry
 	*
+	* @opt string preposition 	Optionally have it say something other than 'from', eg. like 'to'
+	*
 	* @return this
 	*/
-	BetterLogEntry.prototype.addFrom=function(){
+	BetterLogEntry.prototype.addFrom=function(preposition='from'){
 		if(this.stack.length>1){
 			//stack[0] should be the first func outside this file, so stack[1] will be the the func that
 			//called that guy...
 			var {func,where}=this.stack[1];
-			this.append(` from ${func} (${where})`);
+			this.append(` ${preposition} ${func} (${where})`);
 		}else{
 			console.warn("Why is stack so short? Cannot trace...",this);
 			this.append(` from UNKNOWN`);
 		}
 		return this;
+	}
+
+	BetterLogEntry.prototype.addTo=function(){
+		return this.addFrom('to');
 	}
 
 
@@ -2356,130 +2544,149 @@
 	* @call(ble)
 	*/
 	function toPrintArray(options){
-		//Mark the entry as printed, so anyone else getting it will know it's been...
-		this.printed=true;
+	//2020-07-09	
+	// if(this.msg.includes('Maximum call stack size exceeded')){
+	// 	console.log('toPrintArray() - original stack:')
+	// 	console.log(this.stack.original);
+	// }
+		try{
+			//Create the array to hold all the pieces we'll print
+			var arr=[];
 
-		//Create the array to hold all the pieces we'll print
-		var arr=[];
+			//Mark the entry as printed, so anyone else getting it will know it's been...
+			this.printed=true;
 
-		options=Object.assign({},lvlLookup[this.lvl],options);
 
-		//Start filling the array
-		if(options.printId){
-			arr.push('#'+String(this.id),'-');
-		}
+			options=Object.assign({},lvlLookup[this.lvl],options);
 
-		if(options.printMs){
-			arr.push(String(this.timestamp-startTime),'-');
-		}else if(options.printTime){
-			var ts=((typeof options.printTime) == 'function' ? options.printTime(this.timestamp) : this.timestamp);
-			arr.push(ts,'-');				
-		}
+			//Start filling the array
+			if(options.printId){
+				arr.push('#'+String(this.id),'-');
+			}
 
-		//name of who is doing the printing... could be the "unit", could be the function...
-			var name=options.name||this.log ? this.log.name:'';
-			if(name){
+			if(options.printMs){
+				arr.push(String(this.timestamp-startTime),'-');
+			}else if(options.printTime){
+				var ts=((typeof options.printTime) == 'function' ? options.printTime(this.timestamp) : this.timestamp);
+				arr.push(ts,'-');				
+			}
 
-				if(options.printFunc && this.func){ 
-					var func=this.func.replace(name,'') //if func contains name, remove so we don't get duplicates
-									   .replace(/Object\.<anonymous>/,''); //this gives zero information... just remove
+			//name of who is doing the printing... could be the "unit", could be the function...
+				var name=options.name||this.log ? this.log.name:'';
+				if(name){
 
-					//Remove the "unit string" from the func since the name is what we're using (if unit is Foo{}, then 
-					//the name will either be "Foo" (set by constructor) or "Bar" (option), and we don't want
-					//"Foo.Foo" or "Foo.Bar", we just want "Foo" or "Bar"
-					if(this.log && typeof this.log.unit=='object') 
-						func=func.replace(this.log.unit.constructor.name,'')
-					
-					if(func)
-						name=(name+'.'+func).replace('..','.');
+					if(options.printFunc && this.func){ 
+						var func=this.func.replace(name,'') //if func contains name, remove so we don't get duplicates
+										   .replace(/Object\.<anonymous>/,''); //this gives zero information... just remove
+
+						//Remove the "unit string" from the func since the name is what we're using (if unit is Foo{}, then 
+						//the name will either be "Foo" (set by constructor) or "Bar" (option), and we don't want
+						//"Foo.Foo" or "Foo.Bar", we just want "Foo" or "Bar"
+						if(this.log && typeof this.log.unit=='object') 
+							func=func.replace(this.log.unit.constructor.name,'')
+						
+						if(func)
+							name=(name+'.'+func).replace('..','.');
+					}
+				
+				}else if(options.printFunc){ 
+					name=this.func+'()';
+				}else{
+					name=this.where;
+				}
+
+
+				if(options.namePrefix)
+					name=options.namePrefix+name
+				
+				
+				if(name){
+					name='['+name+']';
+					if(options.printColor)
+						if(BetterLog._env=='terminal')
+							name=wrapInBashColor(name,33);
+						else{
+							//NOTE: this works together with the block below, where colorBrow is used 
+							name='%c'+name+'%c'; 
+							options.colorBrow=['font-weight:bold','font-weight:initial',options.colorBrow];
+						}
+
+					arr.push(name,'-');
 				}
 			
-			}else if(options.printFunc){ 
-				name=this.func+'()';
+			//log lvl string
+			if(options.printColor){
+				switch(BetterLog._env){
+					case 'browser':
+						if(options.colorBrow) //in browsers, warn and error are already colored, so colorBrow=null at top ^^
+							//NOTE: The console.log in browsers has a requirement - only the first string can 
+							//be colorized, so we combine anything already in arr and add the level
+							arr=[arr.join(' ')+` %c ${options.STR} `].concat(options.colorBrow); //works both if colorBrow is string as default, 
+																				 //or array created above ^^
+						else
+							arr.push(options.STR)			
+						break;
+					case 'terminal':
+					default:
+						arr.push(wrapInBashColor(options.STR,options.colorTerm));
+				}
 			}else{
-				name=this.where;
+				arr.push(options.STR); 
+			}
+			arr.push('-')
+
+
+			//Main msg
+			addInfo(arr,'',this._code,this.msg,this.where,this.extra,options,3);		
+
+			//Stack
+			if(options.printStackLvl && this.lvl>=options.printStackLvl){
+				oneNewline(arr)
+				let indent=' '.repeat(3);
+				let max=options.printStackLines||100;
+				let stack=(this.stack.length>max ? removeDuplicateLines(this.stack) : this.stack)
+				if(stack.length){
+					arr.push(`${indent}[Stack]`)
+					arr.push.apply(arr,stack.map(line=>{
+						let func=(line.func=='unknown' ? line.orig : line.func)
+							,where=(line.func=='unknown' && line.where=='unknown' ? '':` (${line.where})`)
+							,repeat=(line.repeat?` [${line.repeat} times]`:'');
+						;
+						return `\n${indent} | ${func}${where}${repeat}`
+					}));
+				}
+			}
+
+			//Handling 
+			var pre=' -->';
+			if(this.handling){
+				this.handling.forEach(({what,where,extra})=>{
+					oneNewline(arr) 
+					addInfo(arr,pre,null,what,where,extra,options,pre.length+2)
+				})
 			}
 
 
-			if(options.namePrefix)
-				name=options.namePrefix+name
 			
+			//If opted, in browser, add log so we can easily check previous messages
+			if(options.printSelfOnLvl && options.printSelfOnLvl<=this.lvl && BetterLog._env=='browser'){
+				oneNewline(arr)
+				arr.push(this);
+			}
+
 			
-			if(name){
-				name='['+name+']';
-				if(options.printColor)
-					if(BetterLog._env=='terminal')
-						name=wrapInBashColor(name,33);
-					else{
-						//NOTE: this works together with the block below, where colorBrow is used 
-						name='%c'+name+'%c'; 
-						options.colorBrow=['font-weight:bold','font-weight:initial',options.colorBrow];
-					}
-
-				arr.push(name,'-');
-			}
-		
-		//log lvl string
-		if(options.printColor){
-			switch(BetterLog._env){
-				case 'browser':
-					if(options.colorBrow) //in browsers, warn and error are already colored, so colorBrow=null at top ^^
-						//NOTE: The console.log in browsers has a requirement - only the first string can 
-						//be colorized, so we combine anything already in arr and add the level
-						arr=[arr.join(' ')+` %c ${options.STR} `].concat(options.colorBrow); //works both if colorBrow is string as default, 
-																			 //or array created above ^^
-					else
-						arr.push(options.STR)			
-					break;
-				case 'terminal':
-				default:
-					arr.push(wrapInBashColor(options.STR,options.colorTerm));
-			}
-		}else{
-			arr.push(options.STR); 
-		}
-		arr.push('-')
+			//In Chromiums console, if the first item in arr is a number, all the string items get quoted,
+			//so just to make it look pretty, make sure the first item is a string
+			arr[0]=String(arr[0]);
 
 
-		//Main msg
-		addInfo(arr,'',this._code,this.msg,this.where,this.extra,options,3);		
-
-		//Stack
-		if(options.printStackLvl && this.lvl>=options.printStackLvl){
-			oneNewline(arr)
-			let indent=' '.repeat(3);
-			var stack=this.stack.slice(0,options.printStackLines||100);
-			if(stack.length){
-				arr.push(`${indent}[Stack]`)
-				arr.push.apply(arr,stack.map(({func,where})=>`\n${indent} | ${func} (${where})`))
-			}
+			//Finally add a print method to the array and return it
+			Object.defineProperty(arr,'print',{value:lvlLookup[this.lvl].print});
+		}catch(err){
+			console.error('BUGBUG in BetterLogEntry.prototype.toPrintArray():')
+			console.error(' ',err);
 		}
 
-		//Handling 
-		var pre=' -->';
-		if(this.handling){
-			this.handling.forEach(({what,where,extra})=>{
-				oneNewline(arr) 
-				addInfo(arr,pre,null,what,where,extra,options,pre.length+2)
-			})
-		}
-
-
-		
-		//If opted, in browser, add log so we can easily check previous messages
-		if(options.printSelfOnLvl && options.printSelfOnLvl<=this.lvl && BetterLog._env=='browser'){
-			oneNewline(arr)
-			arr.push(this);
-		}
-
-		
-		//In Chromiums console, if the first item in arr is a number, all the string items get quoted,
-		//so just to make it look pretty, make sure the first item is a string
-		arr[0]=String(arr[0]);
-
-
-		//Finally add a print method to the array and return it
-		Object.defineProperty(arr,'print',{value:lvlLookup[this.lvl].print});
 		return arr;
 
 	}
