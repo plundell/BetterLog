@@ -541,6 +541,12 @@
 	* @return string
 	*/
 	BetterLog.prototype.toString=function(){
+		//In case this is somehow called on something other than an instance of BetterLog then use the 
+		//default toString() function
+		if(!this || !this._isBetterLog){
+			return Object.prototype.toString.call(this);
+		}
+
 		switch(BetterLog.varType(this.unit)){
 			case 'string':
 				return this.unit;
@@ -549,7 +555,7 @@
 			case 'function':
 				return this.unit.name;
 			default:
-				return 'BetterLog';
+				return 'unknown_BetterLog_instance';
 		}
 
 	}
@@ -1203,6 +1209,8 @@
 	*						object,bigint,symbol,string,number,boolean,function,undefined 
 	*					it can also return
 	*						null,array,ble,error,promise,nodelist,node
+	*					if something goes wrong it returns:
+	*						unknown
 	*/
 	function varType(v){
 		if(typeof v === 'object'){
@@ -1237,7 +1245,15 @@
 			}
 			
 		} else {
-			return typeof v
+			let type=typeof v;
+			if(type=='string'||type=='number'||type=='boolean'||type=='function'||type=='undefined'||type=='bigint'||type=='symbol'){
+				//These are the values it's allowed to return, for anything else it will return 'unknown'vv
+				return type;
+			}else{
+				console.warn('Unexpected typeof:',type,v);
+				return 'unknown';
+			}
+
 			//Can return: bigint,symbol,string,number,boolean,function,undefined
 		}
 	}
@@ -1282,21 +1298,30 @@
 					return `<(ble)${BetterLog._syslog.makeEntry(v.lvl, v).toString()}>`;
 				}
 
-				//all other objects, set their types to the constructor, and their values 
-				//either custom toString() method or stringify like ^^
-				printType='<'+v.constructor.name+'>'
+				//The object may be a prototype... in which case we will want to know that...we've decided...
+				if(v.hasOwnProperty('constructor') && typeof v.constructor=='function' && v.constructor.prototype==v){
+					printType='<prototype:'+v.constructor.name+'>'
+				}else{
+					//all other objects we'll print their types as the constructor name...
+					printType='<'+v.constructor.name+'>'
+				}
+
+				//...and values in both cases^:
 				var x=String(v),y=Object.prototype.toString.call(v)
 				if(y!=x){
-					// console.log('c')
-					v=x; //custom toString()
-					//since ^ may have returned a too long string, and 'object' doesn't normally get handled shortened vv,
-					//we change 'type'...
-					type='pleaseshortenmyobject';
+					//use the custom toString()...
+					// console.log('String():',x)
+					// console.log('Object.prototype.toString.call():',y)
+					// console.log('using custom toString instead of trying to json-like this:',v);
+					v=x; 
+					//...then make sure it gets shortenend (since type==object doesn't get shortened vv)
+					type='changing this to an arbitrary string so it gets shortened vv';
 				}else if(total){
-					// console.log('d')
+					//if a total is passed, just return the constructor name... //2020-07-20: why? since it's most likely called 
+					//from makeJsonLikeString() recursively
 					return printType;
 				}else{
-					// console.log('e')
+					//start calling makeJsonLikeString() which may call this method again recursively
 					v=makeJsonLikeString(v,maxLength,type,total);
 				}
 				
@@ -1368,10 +1393,11 @@
 	*/
 	function makeJsonLikeString(obj,maxLength,type,total=0){
 
+		var str='';
+
 		//So we don't loop unecessarily or waste time on super short ones... but if any errors happen
 		//while trying to save time, just proceed to the loooong way of doing it...
 		try{
-			var str;
 			if(total){
 				//this implies we're somewhere nested...
 				if(total>(maxLength*5)){
@@ -1409,6 +1435,10 @@
 				let key=keys[i];
 				try{
 					str=logVar(obj[key],maxLength,total);
+					if(str=='<toLocaleString>'){
+						console.warn(new TypeError(`WARN: BetterLog.logVar() returned '<toLocaleString>' for key '${key}' of passed in obj (see next log).`),'\n',obj);
+						str=`<${typeof obj[key]}>`
+					}
 				}catch(err){
 					str=`<err:${err.message}>`
 				}
@@ -1486,7 +1516,7 @@
 				str=JSON.stringify(obj);
 				return str.substr(0,maxLength-4)+'...'+str.substr(-1);
 			}catch(err){
-				return `<err:${err.message}. See console.verbose^>`
+				return `<err:${String(err)}. See console.verbose^>`
 			}
 		}
 	}
@@ -2275,14 +2305,24 @@
 	* @return this
 	*/
 	BetterLogEntry.prototype.addFrom=function(preposition='from'){
-		if(this.stack.length>1){
-			//stack[0] should be the first func outside this file, so stack[1] will be the the func that
-			//called that guy...
-			var {func,where}=this.stack[1];
-			this.append(` ${preposition} ${func} (${where})`);
-		}else{
-			console.warn("Why is stack so short? Cannot trace...",this);
-			this.append(` from UNKNOWN`);
+		try{
+			if(this.stack.length>1){
+				//stack[0] should be the first func outside this file, so stack[1] will be the the func that
+				//called that guy...
+				var {func,where}=this.stack[1];
+				preposition=(typeof preposition=='string' ? preposition : 'from');
+				this.append(` ${preposition} ${func||'unknown'} (${where||'unknown'})`);
+			}else{
+				console.warn("Why is stack so short? Cannot trace...",this.stack.original);
+				this.append(` from UNKNOWN`);
+			}
+		}catch(err){
+			let str="Not adding 'from' to BLE entry."
+			if(err instanceof TypeError && err.message=='stack.startsWith is not a function'){
+				console.error(str,'BetterLogEntry.prototype.addFrom() was called in the wrong context, cannot access "this"')
+			}else{
+				console.error(str,err);
+			}
 		}
 		return this;
 	}
