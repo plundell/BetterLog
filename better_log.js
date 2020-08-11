@@ -397,7 +397,8 @@
 				key=resolveAlias(key);
 	        	if(typeof key=='string'&&!restricted.includes(key))
 	        		delete map[key];
-	        	return __delete(key)}}  
+	        	return __delete(key)}
+	        }
 	    })
 	    return map;
 	}
@@ -1990,7 +1991,12 @@
 			,_age:{get:()=>Date.now()-this.timestamp}
 			,'where':{enumerable:true, get:()=>this.stack[0].where||'<unknown whereabouts>'}
 			,'func':{enumerable:true, get:()=>this.stack[0].func||'<unknown function>'}
+			
 		})
+		//In browser, so we can easily print BLEs that are logged to console, add a getter that activates print
+		if(BetterLog._env=='browser')
+			Object.defineProperty(this,'_print',{get:()=>this.print()})
+
 		this.lvl=getLogLvl(lvl,4); //Can be changed later manually before printing...
 		this.msg=msg; 
 		this.extra=(Array.isArray(extra)?extra:(extra!=undefined?[extra]:[]));
@@ -1999,6 +2005,8 @@
 		this.timestamp=Date.now();
 		this.handling=[]; //call this.addHandling() will append this list. NOT for bubbling up.
 		this.printed=false;
+
+
 
 		//If an error was passed in as main message...
 		if(msg instanceof Error){
@@ -2078,9 +2086,9 @@
 	}//end of BetterLogEntry
 	BetterLogEntry.prototype=Object.create(Error.prototype); 
 	Object.defineProperty(BetterLogEntry.prototype, 'constructor', {value: BetterLogEntry}); 
-//2019-10-10: Trying to make BLE's pass for Errors so we can start using them as such... Right now checking in uniSoc
-//			  if 'err instanceof Error'
-	BetterLogEntry.prototype._isBLE=BetterLogEntry._isBLE=function(x){
+
+
+	function isBLE(x){
 		if(x && typeof x=='object' && x.constructor.name=='BetterLogEntry' && typeof x.changeWhere=='function'){
 			// if(x.log && !(x.log instanceof BetterLog)){
 			// 	BetterLog._syslog.warn("BetterLog has been exported at least twice:",BetterLog._syslog, x.log.constructor._syslog)
@@ -2090,6 +2098,7 @@
 			return false;
 		} 
 	}
+	BetterLogEntry.prototype._isBLE=BetterLogEntry._isBLE=isBLE;
 
 
 	/*
@@ -2960,6 +2969,14 @@
 
 	//Setup first log, the syslog!
 	BetterLog._syslog=new BetterLog('_syslog',{appendSyslog:false});
+
+	//In browser, make sure uncaught errors are logged properly
+	if(BetterLog._env=='browser'){
+		window.addEventListener('error',function onUncaughtError(err){
+			BetterLog._syslog.error('Uncaught error.',err)
+		    return true; // same as preventDefault, ensures that error is not also logged
+		});
+	}
 
 }(typeof window !== 'undefined' ? window : this || {}) );
 //simpleSourceMap=
