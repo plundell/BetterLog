@@ -33,22 +33,31 @@
 			Error.stackTraceLimit=20
 	}catch(err){console.error(err)}
 
-
     BetterLog._envDetails={};
 
 	//Export from module if available
     if(typeof module === 'object' && module.exports){
         module.exports = BetterLog;
-        BetterLog._env='terminal';   //will be overwritten if 'window' is also available vv
 
-        BetterLog._development=(typeof process=='object' && process && process.env && process.env.NODE_ENV=='development');
+	    //It may still not be running in terminal, some packer may be using module, but if there's a process...
+		if(typeof process=='object' && process && process.env){
+    		BetterLog._env=process.execArgv.join(' ').includes('inspect')?'inspector' : 'terminal'; 
+	    	BetterLog._development=(process.env.NODE_ENV=='development');
+		}
     }
+
 
     //Set on window if available
     if(typeof window === 'object'){
     	window.BetterLog=BetterLog;
-        BetterLog._env='browser'; 
+
         BetterLog._development=(typeof ENV=='string' ? ENV : window.ENV)=='development';
+    	
+    	if(!BetterLog._env)
+        	BetterLog._env='browser'; 
+        else if(BetterLog._env=='terminal')
+			BetterLog._env='inspector'; 
+        
 
         //Simple browser detection, from https://stackoverflow.com/a/9851769
 		if(typeof InstallTrigger !== 'undefined')
@@ -105,18 +114,22 @@
 		}
     }
 
+    /*
+	* From an error, extract the 'where' and create an object that points to a specific file,line,pos. 
+	* This can later (together with a second marker) to determine if an error comes from between 
+	* those two markers
+	*
+	* @param err <Error>
+	* @throws Error
+	* @return object 	{file,line,pos}
+    */
     function prepareInFileMarker(err){
     	if(err instanceof Error){
-	    	var where=parseStackLine(err.stack.split('\n').slice(1,2)[0]).where.split(':');
-	    	return {
-	    		line:Number(where.slice(-2,-1)[0])
-	    		,pos:Number(where.slice(-1)[0])
-	    		,file:where.slice(0,-2).join(':')
-	    	}
-    	}else if(typeof err=='object' && err && err.file)
+	    	return parseStackLine(err.stack.split('\n').slice(1,2).shift());
+    	}else if(typeof err=='object' && err && err.file && typeof err.line=='number' && typeof err.pos=='number')
     		return err
     	else
-    		throw new Error("Expected an <Error> or an already prepared marker, got:"+logVar(err));
+    		throw new Error("Expected an <Error> or an already prepared marker, got: "+logVar(err));
     }
 
 
@@ -515,9 +528,11 @@
 	* @return string|undefined   The mark if present, or undefined
 	*/
 	function getMark(str){
-		var m=str.match(/\[as _mark_([^\]]+)\]/)
-		if(m)
-			return m[1];
+		if(typeof str=='string'){
+			var m=str.match(/\[as _mark_([^\]]+)\]/)
+			if(m)
+				return m[1];
+		}
 	}
 
 
@@ -874,7 +889,7 @@
 	BetterLog.varType=varType;
 	BetterLog.logVar=logVar;
 	BetterLog.prepareInFileMarker=prepareInFileMarker;
-	BetterLog.filterLinesOutsideFile=filterLinesOutsideFile;
+	BetterLog.discardLinesBetweenMarkers=external_discardLinesBetweenMarkers;
     BetterLog.BetterMap=BetterMap;
 	BetterLog.isBetterLog=isBetterLog;
 	BetterLog.debugMode=debugMode;
@@ -1949,82 +1964,116 @@
 				stackArr = splitStackString(stackStr);
 			}
 		}
+
 		if(!stackArr._isStackArr){
 		
 			//NOTE: duplicate lines are handled when we print...
 
-			//Turn array of strings into array of objects
-			stackArr=stackArr.map(parseStackLine); //{func, where, orig, mark}
-			Object.defineProperty(stackArr,'_isStackArr',{value:true,configurable:true,writable:true});
+			//Turn array of strings into array of objects: {func, where, orig, mark, file, line}
+			stackArr=stackArr.map(parseStackLine)
 
-
-			//Now handel depending on env. The first (only) job here is to remove references to this file
-			if(BetterLog._env=='terminal'){
-
-				//Remove all calls produced by this file
-				stackArr=stackArr.filter(line=>line.mark||line.where.includes(__filename)==false);
-				
-				//Optionally remove stack entries that refer to internal modules and have little informative
-				//value to a developer of other modules
-				if(this.options.hideInternalStack){
-					stackArr=removeInternalStack(stackArr);
-				}
-
-				//Now either use filename only or replace rootPath
-				if(this.options.fileOnly)
-					stackArr.forEach(line=>line.where=line.where.slice(line.where.lastIndexOf('/')+1))
-				else
-					stackArr.forEach(line=>line.where.replace(this.options.rootPath,'.'))
-
+			//Now handel depending on env.
+			if(BetterLog._env=='browser'){
+				//Browser code may be minified in which case we remove
+				stackArr=discardLinesBetweenMarkers(stackArr,BetterLog._envDetails.first,BetterLog._envDetails.last);
+			
+			
+			//For 'terminal' or 'inspector'... 
 			}else{
-				//If a simpleSourceMap exists, apply it
-				if(BetterLog.SimpleSourceMap.length){
-					console.log(BetterLog.SimpleSourceMap)
-					stackArr.forEach(line=>line.where=BetterLog.SimpleSourceMap.lookup(line.where,true)||line.where);
-				}
-				
-				stackArr=_filterLinesOutsideFile(stackArr,BetterLog._envDetails.first,BetterLog._envDetails.last);
-				
-			}
-		}
+				//Always remove all calls produced by this file
+				stackArr=stackArr.filter(line=>line.mark||line.file.includes(__filename)==false);
 
+				//optionally remove stack entries that refer to internal modules and have little informative
+				//value to a developer of other modules
+				if(this.options.hideInternalStack)
+					stackArr=removeInternalStack(stackArr);
+
+				//In terminal, since .where isn't an active uri we can shorten it...
+				if(BetterLog._env=='terminal'){
+					//...either showing filename only or at least making the path relative
+					if(this.options.fileOnly)
+						stackArr.forEach(line=>line.where=line.where.slice(line.where.lastIndexOf('/')+1))
+					else
+						stackArr.forEach(line=>line.where.replace(this.options.rootPath,'.'))
+				}
+			}
+			
+			//If a simpleSourceMap exists, apply it 
+			if(BetterLog.SimpleSourceMap.length){
+				stackArr.forEach(line=>line.where=BetterLog.SimpleSourceMap.lookup(line.where,true)||line.where);
+			}
+			
+			Object.defineProperty(stackArr,'_isStackArr',{value:true,configurable:true,writable:true});
+		}
+		
 		//Always make sure there is at least on one item in stack, that way we don't have to worry about errors
 		if(!stackArr.length)
 			stackArr.push({'empty':true})
 
-		
 		return stackArr
+
+
 	}
-	
-	function filterLinesOutsideFile(stackOrError,firstOrError,lastOrError){
-		return _filterLinesOutsideFile(BetterLog._syslog.getStackArray(stackOrError),prepareInFileMarker(firstOrError),prepareInFileMarker(lastOrError))
-	}
-	function _filterLinesOutsideFile(stackArr,first,last){
-		var i=stackArr.length-2;
-		for(i;i>=0;i--){
-			if(!stackArr[i].mark&&!isLineOutsideFile(stackArr[i],first,last))
-				stackArr.splice(i,1);
+
+
+	/*
+	* Given a $stackArr, filter out any entries between a $first and $last marker
+	*
+	* @param array stackArr Array of objects all returned from @see parseStackLine(). *ALTERED*
+	* @param object first   Return from @see prepareInFileMarker()
+	* @param object last  	Return from @see prepareInFileMarker()
+	* 
+	* @param object $stackArr
+	*/
+	function discardLinesBetweenMarkers(stackArr,first,last){
+		if(first && first.file && last && last.file){
+			var i=stackArr.length-2;
+			for(i;i>=0;i--){
+				if(!stackArr[i].mark && isBetweenMarkers(stackArr[i],first,last))
+					stackArr.splice(i,1);
+			}
+		}else{
+			console.warn("EINVAL: Cannot filter lines in file. Args:",arguments);
 		}
 		return stackArr;
 	}
 
-	function isLineOutsideFile(line,first,last){
-		if(line.file!=first.file)
-			return true;
-		
+	/*
+	* Used by discardLinesBetweenMarkers() only
+	*
+	* @return boolean 	True if $line is between $first and $last, else false (even on error)
+	*/
+	function isBetweenMarkers(line,first,last){
+		try{
+			if(line.file!=first.file)
+				return false;
 
-		if(line.line<first.line||line.line>last.line)
-			return true;
+			if(line.line<first.line||line.line>last.line)
+				return false;
 
-		if(first.line==last.line){
-			if(line.pos<first.pos||line.pos>last.pos)
-				return true;
+			//The markers will never be from the same line UNLESS the file has been minified...
+			if(first.line==last.line){
+				if(line.pos<first.pos||line.pos>last.pos)
+					return false;
+			}
+			
+			return true;
+		}catch(err){
+			//Best effort, point is we could determine if it was between... so just say it wasn't
+			return false;
 		}
-		
-		return false;
 	}
 
-
+	/*
+	* External version of @see discardLinesBetweenMarkers()
+	*/
+	function external_discardLinesBetweenMarkers(stackOrError,firstOrError,lastOrError){
+		return discardLinesBetweenMarkers(
+			BetterLog._syslog.getStackArray(stackOrError)
+			,prepareInFileMarker(firstOrError)
+			,prepareInFileMarker(lastOrError)
+		)
+	}
 
 
 	/*
@@ -2062,21 +2111,31 @@
 	function handleSyntaxErrorStack(str){
 		var obj={stackArr:[],description:''};
 		try{
-			var isDescription=true;
-			obj.stackArr=str.split(/\r\n|\r|\n/).map((line,i,arr)=>{
-				if(i>0 && isDescription){ //First line is part of the stack, the place where the syntax error actually occured
-					if(line.includes('SyntaxError:')){
-						isDescription=false;       //this line is ignored
-					}else if(line.trim()){
-						obj.description+=line+'\n'; //this line is included in description (add untrimmed)
-					}
-					return;
-				}else{
-					return line.trim();  //this line is included in stack
-				}
-			})
-			.filter(line=>line); //get rid of empty lines
+			var isDescription=true
+				,arr=str.split(/\r\n|\r|\n/)
+				,len=arr.length
+			;
+			//The very first line is part of the stack, the place where the syntax error actually occured, but it's 
+			//missing some fluff which is needed for the regexp in parseStackLine to work
+			obj.stackArr.push('at _SyntaxError_ ('+arr[0]+':0)');
 
+			//The next few lines are an exert from the script that shows the error, this is NOT part of the err.message
+			//and as such we save it to use later...
+			for(let i=1; i<len; i++){
+				let trimmed=arr[i].trim();
+				if(trimmed){
+					if(isDescription){ 
+						if(arr[i].includes('SyntaxError:')){
+							isDescription=false;       //this line is ignored as it's the err.message
+						}else{
+							obj.description+=arr[i]+'\n'; //add the untrimmed line since it may be '     ^^^^^'
+						}
+					}else{
+						obj.stackArr.push(trimmed);
+					}
+				}
+			}
+		
 			//Remove empty descriptions, prepend rest with newline to make it easier to read
 			if(!obj.description || obj.description.match(/^\s*$/))
 				obj.description=''
@@ -2213,32 +2272,52 @@
 	* @no_throw
 	*/
 	function parseStackLine(line){
-		var obj={where:'', func:'unknown',orig:line};
+		if(line.includes('/home/buck/git/q/common-lib/smarties/smarties.js:1468'))
+			debugger;
+		var obj={where:'unknown', func:'unknown',file:'unknown',line:0, pos:0,orig:line};
 		try{
 			if(!line)
 				throw 'Empty line'
 
+			var where;
 			if(BetterLog._envDetails.browser=='firefox'){
 				let i=line.indexOf('@');
-				obj.func=line.substr(0,i);
-				obj.where=line.substr(i+1);
+				obj.func=line.substr(0,i)||obj.func;
+				where=line.substr(i+1);
 			}else{
-				line=line.replace(/^\s*at /,'').trim();
-
-				var s=line.indexOf('(');
-				obj.func=line.substring(0,s-1);//calling func
-
-				var w=line.substring(s+1);
-				obj.where=(w.substring(w.length-1)==')' ? w.substring(0,w.length-1) : w); //fileline
+		//Example line    'at _SyntaxError_ (/home/buck/git/q/common-lib/smarties/smarties.js:1468'
+				var m=line.match(/^(\s*at\s+)?([^(]+)?\s*\(([^)]+)\)/); //17 steps
+				if(m){
+					obj.func=m[2].trim()||obj.func;
+					where=m[3];
+				}
 			}
-			if(obj.where){
-				let where=obj.where.split(':');
-				obj.pos=Number(where[where.length-1])||undefined;
-				obj.line=Number(where[where.length-2])||undefined;
-				obj.file=where.slice(0,-2).join(':');
-			}else{
-				obj.where='unknown';
+
+			if(where){
+				let [pos,line,...file]=where.split(':').reverse();
+				let _line=Number(line);
+				if(isNaN(line)){
+					file.unshift(line); //we know line is really the end of file...
+					_line=Number(pos); //but we don't know if pos is the line or if there is no line...
+					if(isNaN(_line))
+						file.unshift(pos);//turns out there was no line or pos
+					else
+						obj.line=_line; //turns out there was only a line
+				}else{
+					obj.line=_line; //we know line is the line number...
+					pos=Number(pos);//...but we don't know if there is also a pos
+					if(!isNaN(pos))
+						obj.pos=pos;
+				}
+				obj.file=file.reverse().join(':');
+				obj.where=`${obj.file}:${obj.line}:${obj.pos}`
+
+				//In 'inspector' (nodejs) the uri needs to be prepended by 'file://' to actually link to the file
+				if(BetterLog._env=='inspector' && obj.file[0]=='/'){ 
+					obj.where='file://'+obj.where; 
+				}
 			}
+
 			//Check for a mark
 			obj.mark=getMark(obj.func)
 
@@ -3295,7 +3374,7 @@
 			}
 
 			//Turn into array since we're about to get fancy with it
-			if(BetterLog._env=='browser' && options.printColor)
+			if(BetterLog._env!='terminal' && options.printColor)
 				options.colorBrow=[options.colorBrow];
 
 			if(options.printMarks){
@@ -3371,18 +3450,15 @@
 			
 			//log lvl string
 			if(options.printColor){
-				switch(BetterLog._env){
-					case 'browser':
-						if(options.colorBrow) //in browsers, warn and error are already colored, so colorBrow=null at top ^^
-							//NOTE: The console.log in browsers has a requirement - only the first string can 
-							//be colorized, so we combine anything already in arr and add the level
-							arr=[arr.join(' ')+` %c ${options.STR} `].concat(options.colorBrow);
-						else
-							arr.push(options.STR)			
-						break;
-					case 'terminal':
-					default:
+				if(BetterLog._env=='terminal'){
 						arr.push(wrapInBashColor(options.STR,options.colorTerm));
+				}else{
+					if(options.colorBrow) //in browsers, warn and error are already colored, so colorBrow=null at top ^^
+						//NOTE: The console.log in browsers has a requirement - only the first string can 
+						//be colorized, so we combine anything already in arr and add the level
+						arr=[arr.join(' ')+` %c ${options.STR} `].concat(options.colorBrow);
+					else
+						arr.push(options.STR)			
 				}
 			}else{
 				arr.push(options.STR); 
@@ -3425,7 +3501,7 @@
 
 			
 			//If opted, in browser, add log so we can easily check previous messages
-			if(options.printSelfOnLvl && options.printSelfOnLvl<=this.lvl && BetterLog._env=='browser'){
+			if(options.printSelfOnLvl && options.printSelfOnLvl<=this.lvl && BetterLog._env!='terminal'){
 				oneNewline(arr)
 				arr.push(this);
 			}
@@ -3531,6 +3607,7 @@
 		browser:function(printArray,item,len=0){printArray.push(typeof item=='string' ? ((len>0&&item.length>len)?item.substr(0,len)+'...':item): item);}
 		,terminal:function(printArray,item,len=0){printArray.push(typeof item=='object' ? logVar(item,len) : item);}
 	}
+	pushItem['inspector']=pushItem['browser'];
 
 
 	/*
@@ -3647,10 +3724,9 @@
 	}
 
    	//Used to determine if we're in the same file
-	if(BetterLog._env=='browser'){
-    	BetterLog._envDetails.first=prepareInFileMarker(firstLineMarker);
-		BetterLog._envDetails.last=prepareInFileMarker(new Error('Last line marker:'));
-    }
+	BetterLog._envDetails.first=prepareInFileMarker(firstLineMarker);
+	BetterLog._envDetails.last=prepareInFileMarker(new Error('Last line marker:'));
+
 }((typeof window !== 'undefined' ? window : (typeof global!='undefined' ? global : this)) || {}));
 //simpleSourceMap=
 //simpleSourceMap2=
