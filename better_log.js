@@ -537,8 +537,8 @@
 
 
 	/*
-	* Wrap a function so when it's called a "mark" is inserted in the callstack which can is identified by getStackArray()>parseStackLine.
-	* By default these flags are printed, see option 'prinkMark'
+	* Wrap a function so when it's called a "mark" is inserted in the callstack which is identified by getStackArray()>parseStackLine.
+	* Option 'prinkMark' determines if these are printed in the log, default true.
 	*
 	* @any-order
 	*   @params string|number  marks  	One or more marks to use
