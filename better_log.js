@@ -273,17 +273,32 @@
 	Object.defineProperty(BetterLog,'_development',{writable:false,configurable:false});
 
 	const logLvl=[
-		{str:'trace',Str:'Trace',STR:'TRACE',nr:1,colorTerm:96,colorBrow:'background:cyan;color:black',print:console.debug}
-		,{str:'debug',Str:'Debug',STR:'DEBUG',nr:2,colorTerm:94,colorBrow:'background:#5862f3;color:white',print:console.log}
-		,{str:'info',Str:'Info',STR:'INFO',nr:3,colorTerm:92,colorBrow:'background:#3bd473;color:black',print:console.log}
-		,{str:'note',Str:'Note',STR:'NOTE',nr:4,colorTerm:93,colorBrow:'background:#f23dfb;color:white',print:console.warn}
-		,{str:'warn',Str:'Warn',STR:'WARN',nr:5,colorTerm:91,colorBrow:'background:orange;color:black',print:console.warn}
-		,{str:'error',Str:'Error',STR:'ERROR',nr:6,colorTerm:101,colorBrow:null,print:console.error}
+		{str:'trace',nr:1,colorTerm:'cyan',colorBrow:'background:cyan;color:black',print:console.debug}
+		,{str:'debug',aliases:['verbose'],nr:2,colorTerm:'light blue',colorBrow:'background:#5862f3;color:white',print:console.log}
+		,{str:'info',nr:3,colorTerm:'light green',colorBrow:'background:#3bd473;color:black',print:console.log}
+		,{str:'note',aliases:['notice'],nr:4,colorTerm:'light yellow',colorBrow:'background:#f23dfb;color:white',print:console.warn}
+		,{str:'warn',aliases:['warning'],nr:5,colorTerm:'light red',colorBrow:'background:orange;color:black',print:console.warn}
+		,{str:'error',nr:6,colorTerm:'light red background',colorBrow:null,print:console.error}
 	]
+
+	//Add capitalized versions
+	logLvl.forEach(obj=>{obj.STR=obj.str.toUpperCase();obj.Str=obj.str[0].toUpperCase()+obj.str.slice(1)});
 
 	//For faster lookup, create a lookup table who's keys are both number and string id's of levels
 	const lvlLookup={};
-	logLvl.forEach(obj=>{lvlLookup[obj.str]=obj;lvlLookup[obj.STR]=obj;lvlLookup[obj.nr]=obj;})
+	logLvl.forEach(obj=>{
+		lvlLookup[obj.str]=obj;
+		lvlLookup[obj.STR]=obj;
+		lvlLookup[obj.nr]=obj;
+		if(obj.aliases){
+			obj.aliases.forEach(alias=>lvlLookup[alias]=obj)
+		}
+	})
+
+
+
+
+
 
 		/*
 			Terminal color cheat sheet
@@ -297,23 +312,23 @@
 			Magenta         35      45
 			Cyan            36      46
 			White           37      47	
-			Bright Black    90      100
-			Bright Red      91      101
-			Bright Green    92      102
-			Bright Yellow   93      103
-			Bright Blue     94      104
-			Bright Magenta  95      105
-			Bright Cyan     96      106
-			Bright White    97      107
+			Light Black    90      100
+			Light Red      91      101
+			Light Green    92      102
+			Light Yellow   93      103
+			Light Blue     94      104
+			Light Magenta  95      105
+			Light Cyan     96      106
+			Light White    97      107
 		*/
 	const highlightColor={
-		'red':{colorTerm:'red background',colorBrow:'red'}
-		,'blue':{colorTerm:'blue background',colorBrow:'blue'}
-		,'magenta':{colorTerm:'magenta background',colorBrow:'magenta'}
-		,'pink':{colorTerm:'pink background',colorBrow:'pink'}
-		,'green':{colorTerm:'green background',colorBrow:'green'}
-		,'yellow':{colorTerm:'yellow background',colorBrow:'yellow'}
-		,'cyan':{colorTerm:'cyan background',colorBrow:'cyan'}
+		'red':{colorTerm:'red background;default',colorBrow:'background:red'}
+		,'blue':{colorTerm:'blue background;default',colorBrow:'background:blue'}
+		,'magenta':{colorTerm:'magenta background;default',colorBrow:'background:magenta'}
+		,'pink':{colorTerm:'pink background;default',colorBrow:'background:pink'}
+		,'green':{colorTerm:'green background;default',colorBrow:'background:green'}
+		,'yellow':{colorTerm:'yellow background;default',colorBrow:'background:yellow'}
+		,'cyan':{colorTerm:'cyan background;default',colorBrow:'background:cyan'}
 	}
 
 
@@ -373,9 +388,24 @@
 		bashColors[c]=c;
 	}
 
-	function lookupBashColor(color){
-		return bashColors[color]||0;
+
+	/*
+	* Get the bash color code string which is ready to be inserted into any other string and will cause anything after
+	* it to be written in that color
+	*
+	* @param string|number color   One or more colors, either ';' separated or in array, eg. 'reset background; pink'
+	*
+	* @return string                     eg. '\x1b[49m\x1b[95m'
+	*/
+	function getBashColorCode(color){
+		//Turn into array since there may be more than 1 color
+		if(typeof color == 'string' && color.includes(';')){
+			return color.split(';').map(str=>getBashColorCode(str.trim())).join('');
+		}else if(bashColors.hasOwnProperty(color)){
+			return '\x1b['+bashColors[color]+'m'; //the looked up value is a number
+		}
 	}
+
 
 
 	function getLvlNr(x=3,d=3){
@@ -442,7 +472,7 @@
 		,sourcePrefix:false //Printed before name. Default nothing. Suitable for default options or one-time use, else just use 'name'
 		,printMarks:true //Before the source, each mark is printed like [mark]
 		,breakOnError:false
-		,msgLength:1000     //The longest printed msg string of an entry    NOTE: in browser objects are printed live, ie. this doesn't apply
+		,msgLength:1000     //The longest printed msg string of an entry    NOTE: this doesn't apply to objects in in browser
 		,extraLength:1000   //The longest printed extra string of an entry   ^^
 
 		,hideInternalStack:true //true==remove stack entries that refers to internal stuff. Only works as static option
@@ -649,12 +679,19 @@
 		}else{
 			this.unit=unit; 
 			  //^NOTE: will get changed by changeName if it's a string and another options.name was passed, but we set it here so 
-			  //this.toString() in this.changeName() works
+			  //       this.toString() in this.changeName() works
 		}
 
+// try{
 
-		//Find and set a unique name for this instance. NOTE: this will also set on ._instances
+		//Find and set a unique name for this instance. NOTE: this will also set an alias on ._instances
 		this.changeName(this.options.name)
+		  //if no name is passed it'll default to this.toString()+integer
+// }catch(e){
+// 	console.log(this);
+// 	console.log(this.__proto__)
+// 	throw e
+// }
 
 
 
@@ -694,9 +731,13 @@
 
 
 		/*
-		* @prop object codes 	Keys are short strings, values are longer descriptions.
+		* @prop object codes 	Keys are short strings or numbers, values are longer descriptions. Useful when building 
+		*						a wrapper around something which throws codes which you would otherwise need to lookup 
+		*						their meaning, eg:
+		*	html error   - { 416 : 'Requested Range Not Satisfiable' }
+		*	socket error - { 1003: "Policy violation: Unsupported data type (e.g. endpoint only understands text data, but received binary)."} 
 		*
-		* NOTE: Used by this.throwCodes. If specific key isn't found, see BetterLog.prototype._codes
+		* NOTE: Used by this.makeErrorCode
 		*/
 		this.codes={};
 
@@ -848,32 +889,45 @@
 		*/
 		this.highlight=function(...args){
 			//If no predefined color was specified, assume we didn't specify a color at all so arg#1 is really arg#2 as so on...
-			var color='red';
-			if(typeof args[0]=='string' && highlightColor.hasOwnProperty(args[0]))
+			var color;
+			if(typeof args[0]=='string' && highlightColor.hasOwnProperty(args[0])){
 				color=args.shift();
+			}
+			//if no color get's set BLE.highlight(undefined) will use the color of the level... 
 
 			//If no level was given, default to 'note'
-			if(!logLvl.hasOwnProperty(args[0]))
+			if(!logLvl.hasOwnProperty(args[0])){
 				args.unshift('note');
+			}
+
 
 			//Now create, colorize, print and return the entry 
 			return self.makeEntry.apply(self,args).highlight(color).exec('force');
 		}
 
+		/*
+		* Creates BLE error and sets a code.
+		*
+		* @return <BLE>
+		* @not_printed
+		*/
+		this.makeErrorCode=function(code,...args){
+			//If the code matches one stored on this BetterLog... 
+			if(self.codes[code])
+				args.unshift(self.codes[code]);  //...prepend $args with said description, ie. making it the first part of the message
+		
+			return self.makeError(...args).setCode(code);
+		}
 
 		/*
-		* Create and throw a BLE with a code. @see this.makeCodeError()
+		* Create and throw a BLE with a code. 
 		*
 		* @throws <BLE>
 		* @return n/a
 		* @not_printed
 		*/
-		this.throwCode=function(code,...args){
-			//If a code and description was previously stored, prepend $args with said description
-			if(self.codes[code])
-				args.unshift(self.codes[code]);
-		
-			self.makeError(...args).throw(code);
+		this.throwCode=function(...args){
+			throw self.errorCode(...args);
 		}
 
 	//done defining bound shortcuts..
@@ -900,9 +954,9 @@
 
 
 	/*
-	* The string of the log is a representation of the 'unit' and is intended to be the same for
-	* logs created with objects from the same constructor, which facilitates filtering logs for a
-	* given class
+	* Terminology:     this.name        a unique string identifier
+	*                  this.unit        a unique identfier, can be live object
+	*                  this.toString()  a common identifier for all logs created from the same place, eg. in some other objects constructor
 	*
 	* @return string
 	*/
@@ -954,7 +1008,8 @@
 		//don't use a single map is because that would affect .size() and .forEach()
 
 
-		//If this.unit is a string it needs to get changed too, since both this.unit and this.name should be unique
+		//Normally this.unit is an instance of some object who's constructor created this log, but in case this.unit is a string 
+		//it needs to get changed too since both this.unit and this.name should be unique
 		if(typeof this.unit=='string'){
 			if(BetterLog._instances.has(this.unit))
 				BetterLog._instances.delete(this.unit);
@@ -1802,18 +1857,23 @@
 				if(i>-1)
 					keys.splice(i,1);
 			}
-
+			var simpleLogVar=function(x){
+				var str=`<${typeof obj[key]}>`
+			}
 			var temp={},over=[],extra=0,i=0,l=keys.length,even=Math.floor(maxLength/l);
 			for(i;i<l;i++){
 				let key=keys[i];
 				try{
 					str=logVar(obj[key],maxLength,total);
-					if(str=='<toLocaleString>'){
-						console.warn(new TypeError(`WARN: BetterLog.logVar() returned '<toLocaleString>' for key '${key}' of passed in obj (see next log).`),'\n',obj);
-						str=`<${typeof obj[key]}>`
-					}
+					if(str=='<toLocaleString>')
+						throw new Error(`BUGBUG: BetterLog.logVar() returned '<toLocaleString>'`);
 				}catch(err){
-					str=`<err:${err.message}>`
+					console.group();
+					console.debug(`makeJsonLikeString() failed to stringify key '${key}':`);
+					console.debug('OBJECT:',obj);
+					console.debug('ERROR:',err);
+					console.groupEnd();
+					str=`<${typeof obj[key]}>`
 				}
 				temp[key]=str;
 				let sl=str.length
@@ -1842,16 +1902,16 @@
 					rest=undefined;
 				}
 				even+=Math.floor(extra/over.length);
-				over.forEach((key,i)=>{
+				for(let key of over){
 					if(temp[key].length>even){
 						let short=temp[key].substr(0,even-3)+'...'+temp[key].substr(-1); //just assume the last char is } ] "
 						// console.log(i,key,temp[key].length,' --> ',short.length)
 						temp[key]=short;
 					}
-				})
+				}
 			}
 
-			var add=(key)=>{
+			var add=function(key){
 				if(!obj.propertyIsEnumerable(key))
 					str+='*'
 				if(!String(temp[key]).startsWith(key)) //__proto__ won't be a string
@@ -1883,14 +1943,19 @@
 			return str;
 
 		}catch(err){
+			console.group()
+			console.debug('makeJsonLikeString() failed to stringify object:')
+			console.debug('OBJECT:',obj);
+			console.debug('ERROR:',err);
 			try{
-				console.warn(err);
-				console.verbose(obj);
-				str=JSON.stringify(obj);
-				return str.substr(0,maxLength-4)+'...'+str.substr(-1);
-			}catch(err){
-				return `<err:${String(err)}. See console.verbose^>`
+				var str=JSON.stringify(obj); //try again...
+				str=str.substr(0,maxLength-4)+'...'+str.substr(-1);
+			}catch(e){
+				console.debug('ERROR:',e)
+				str=`<err:Failed to convert object (see console.debug^) to JSON-like string>`;
 			}
+			console.groupEnd();
+			return str;
 		}
 	}
 
@@ -2019,6 +2084,8 @@
 	/*
 	* Given a $stackArr, filter out any entries between a $first and $last marker
 	*
+	* NOTE: When this method is called from outside this file it'll be external_discardLinesBetweenMarkers() which is actually called
+	*
 	* @param array stackArr Array of objects all returned from @see parseStackLine(). *ALTERED*
 	* @param object first   Return from @see prepareInFileMarker()
 	* @param object last  	Return from @see prepareInFileMarker()
@@ -2065,7 +2132,7 @@
 	}
 
 	/*
-	* External version of @see discardLinesBetweenMarkers()
+	* External version of @see discardLinesBetweenMarkers(). It allows "unprocessed" args
 	*/
 	function external_discardLinesBetweenMarkers(stackOrError,firstOrError,lastOrError){
 		return discardLinesBetweenMarkers(
@@ -2086,16 +2153,19 @@
 	function removeInternalStack(stackArr){
 		return stackArr.filter((obj,i)=>{
 			//always keep first line of stack
-			if(i===0)
+			if(i===0){
 				return true;
-			if(obj.where.startsWith('internal/'))
+			}
+
+			if(
+				obj.where.startsWith('node:internal/')
+				|| obj.where.startsWith('internal/')
+				|| obj.where.startsWith('vm.js:')
+				|| obj.where.startsWith('module.js:')
+				|| obj.where.includes('bootstrap_node.js:')
+			){
 				return false;
-			if(obj.where.startsWith('vm.js:'))
-				return false;
-			if(obj.where.startsWith('module.js:'))
-				return false;
-			if(obj.where.includes('bootstrap_node.js:'))
-				return false;
+			}
 			
 			return true;
 		})
@@ -2266,27 +2336,38 @@
 	}
 
 	/*
-	* @param string line		A line single line from the stack which contains calling function, file, line
+	* @param string lineStr		A line single line from the stack which contains calling function, file, line
 	*
 	* @return object{where:string, func:string}
 	* @no_throw
 	*/
-	function parseStackLine(line){
-		if(line.includes('/home/buck/git/q/common-lib/smarties/smarties.js:1468'))
-			debugger;
-		var obj={where:'unknown', func:'unknown',file:'unknown',line:0, pos:0,orig:line};
+	function parseStackLine(lineStr){
+		// if(line.includes('smarties.js:1468'))
+		// 	debugger;
+		var obj={where:'unknown', func:'unknown',file:'unknown',line:0, pos:0,orig:lineStr};
+		//DevNote: toPrintArray() will look for 'unknown' when determining if a certain prop is set or not
 		try{
-			if(!line)
+			if(!lineStr)
 				throw 'Empty line'
+
+			//Remove surrounding whitespace
+			lineStr=lineStr.trim();
 
 			var where;
 			if(BetterLog._envDetails.browser=='firefox'){
-				let i=line.indexOf('@');
-				obj.func=line.substr(0,i)||obj.func;
-				where=line.substr(i+1);
+				let i=lineStr.indexOf('@');
+				obj.func=lineStr.substr(0,i)||obj.func;
+				where=lineStr.substr(i+1);
+			// }else if(BetterLog._env=='inspector' && lineStr.startsWith('at /')){
+			}else if(lineStr.startsWith('at /')){
+    	//Example line    'at /home/buck/git/q/qmaster/src/qmaster.js:151:11'
+    			where=lineStr.substr(3);
+    			
+    			//To prevent toPrintArray() from printing lineStr (srg#1 ^) as the function we change .func
+    			obj.func='<anonymous>'
 			}else{
-		//Example line    'at _SyntaxError_ (/home/buck/git/q/common-lib/smarties/smarties.js:1468'
-				var m=line.match(/^(\s*at\s+)?([^(]+)?\s*\(([^)]+)\)/); //17 steps
+		//Example line    'at _SyntaxError_ (/path/to/q/common-lib/smarties/smarties.js:1468'
+				var m=lineStr.match(/^(at\s+)?([^(]+)?\s*\(([^)]+)\)/); //17 steps
 				if(m){
 					obj.func=m[2].trim()||obj.func;
 					where=m[3];
@@ -2294,17 +2375,18 @@
 			}
 
 			if(where){
-				let [pos,line,...file]=where.split(':').reverse();
-				let _line=Number(line);
-				if(isNaN(line)){
-					file.unshift(line); //we know line is really the end of file...
-					_line=Number(pos); //but we don't know if pos is the line or if there is no line...
-					if(isNaN(_line))
+				let [pos,x,...file]=where.split(':').reverse();
+				let lineNo=Number(x);
+				if(isNaN(x)){
+					file.unshift(x); //we know x is really the end of file...
+					lineNo=Number(pos); //but we don't know if pos is the line or if there is no line...
+					if(isNaN(lineNo)){
 						file.unshift(pos);//turns out there was no line or pos
-					else
-						obj.line=_line; //turns out there was only a line
+					}else{
+						obj.line=lineNo; //turns out there was only a line
+					}
 				}else{
-					obj.line=_line; //we know line is the line number...
+					obj.line=lineNo; //we know it's the line number...
 					pos=Number(pos);//...but we don't know if there is also a pos
 					if(!isNaN(pos))
 						obj.pos=pos;
@@ -2690,12 +2772,33 @@
 	}
 
 	/*
+	* Check if a string or regexp matches any log name which this entry, or stack or one of it's bubbles, has been exec'ed on
+	*
+	* @param string|<RegExp> searchTerm
+	*
+	* @return boolean
+	*/
+	BetterLogEntry.prototype.matchLogName=function(searchTerm){
+		var entry=this;
+		try{
+			while(entry){
+				if(entry._logs.some(log=>log.name.match(searchTerm))){
+					return true;
+				}
+				entry=entry.bubble;
+			}
+		}catch(err){
+			console.error("Failed while checking BLE entry for affilitate log names:",searchTerm,entry,err);
+		}
+		return false;
+	}
+
+	/*
 	* @return string 	The	code+message+extras of this entry (no where,bubble or handling), all on a single line 
 	*/
 	BetterLogEntry.prototype.toString=function(){
 		//Start by turning any extras into strings
 		let extra=this.extra.map(x=>logVar(x,300,'noType'))
-
 		//Then use the same mechanism as when printing...
 		return addInfo([],null,this._code,this.message,null,extra,this.options)
 			.join(' ')
@@ -2805,18 +2908,20 @@
 	* @return this
 	*/
 	BetterLogEntry.prototype.highlight=function(color){
-	
-		//Default to red
-		color=(typeof color=='string' && highlightColor.hasOwnProperty(color)) ? color:'red'
-		
+		if(typeof color=='string')
+			color=color.replace('light','').replace('background','').trim()
 
-		//Set options
-		var c=highlightColor[color];
-		this.setOptions({
-			colorTerm:String(`${c.colorTerm};${lvlLookup['note'].colorTerm}`)
-			,colorBrow:`background:${c.colorBrow}` //NOTE: replaces default
-			,autoPrintLvl:1
-		})
+		var colors;
+		if(highlightColor.hasOwnProperty(color)){
+			colors=highlightColor[color];
+		}else{
+			color=logLvl[this.lvl].colorTerm.replace('light','').replace('background','').trim();
+			colors=highlightColor[color];
+		}
+			
+		let options=Object.assign({autoPrintLvl:1},colors);
+
+		this.setOptions(options);
 
 		return this;
 	}
@@ -2860,7 +2965,7 @@
 		 //^this keeps the first newline, which we want vv (else it goes on same row as last of vv)
 
 		//Then set, prepended by the current stack
-		this.setStack(this._rawStack+str);
+		this.setStack(this._rawStack+str); //this will reset the _parsedStack and _stackMarks too
 
 		return this;
 
@@ -2946,6 +3051,30 @@
 		return this;
 	}
 
+	/*
+	* Check if a string or regexp matches this entry's stack or one of it's bubbles
+	*
+	* @param string|<RegExp> searchTerm
+	*
+	* @return boolean
+	*/
+	BetterLogEntry.prototype.matchStack=function(searchTerm){
+		var entry=this;
+		try{
+			while(entry){
+				if(entry._rawStack.match(searchTerm)){
+					return true;
+				}
+				entry=entry.bubble;
+			}
+		}catch(err){
+			console.error("Failed while checking BLE entry stack for search term:",searchTerm,entry,err);
+		}
+		return false;
+	}
+
+
+
 
 
 	/*
@@ -2966,7 +3095,7 @@
 	/*
 	* Check if this stack contains a specific mark
 	* @param string|number mark
-	* @return this
+	* @return boolean
 	*/
 	BetterLogEntry.prototype.hasMark=function(mark){
 		mark=unmakeMark(mark);
@@ -3340,7 +3469,9 @@
 					console.log('--- end ---');
 			}
 		}catch(err){
-			console.error("BUGBUG: BetterLogEntry.print() failed.",err,this);
+			console.group("BUGBUG - BetterLogEntry.print() failed:")
+			console.error(err);
+			console.groupEnd();
 		}
 
 		return this;
@@ -3453,12 +3584,14 @@
 				if(BetterLog._env=='terminal'){
 						arr.push(wrapInBashColor(options.STR,options.colorTerm));
 				}else{
-					if(options.colorBrow) //in browsers, warn and error are already colored, so colorBrow=null at top ^^
+					if(options.colorBrow){ //in browsers, warn and error are already colored, so colorBrow=null at top ^^
+						
 						//NOTE: The console.log in browsers has a requirement - only the first string can 
 						//be colorized, so we combine anything already in arr and add the level
 						arr=[arr.join(' ')+` %c ${options.STR} `].concat(options.colorBrow);
-					else
-						arr.push(options.STR)			
+					}else{
+						arr.push(options.STR);
+					}
 				}
 			}else{
 				arr.push(options.STR); 
@@ -3477,25 +3610,35 @@
 				let stack=(this.stackArr.length>max ? removeDuplicateLines(this.stackArr) : this.stackArr)
 				if(stack.length){
 					arr.push(`${indent}[Stack]`)
-					arr.push.apply(arr,stack.map(line=>{
-						let func=(line.func=='unknown' ? line.orig : line.func)
-							,where=(line.func=='unknown' && line.where=='unknown' ? '':` (${line.where})`)
-							,repeat=(line.repeat?` [${line.repeat} times]`:'');
-						;
-						return `\n${indent} | ${func}${where}${repeat}`
-					}));
+					for(let line of stack){
+						let func=(line.func=='unknown' ? line.orig : line.func); 
+						let where=(line.func=='unknown' && line.where=='unknown' ? '':` (${line.where})`);
+						let repeat=(line.repeat?` [${line.repeat} times]`:'');
+						arr.push(`\n${indent} | ${func}${where}${repeat}`)
+					}
+					// arr.push.apply(arr,stack.map(line=>{
+					// 	let func=(line.func=='unknown' ? line.orig : line.func); 
+					// 	let where=(line.func=='unknown' && line.where=='unknown' ? '':` (${line.where})`);
+					// 	let repeat=(line.repeat?` [${line.repeat} times]`:'');
+					// 	return `\n${indent} | ${func}${where}${repeat}`
+					// }));
 				}
 			}
 
 			//Handling 
 			if(this.handling){
 				let pre=' -->';
-				if(options.printColor && BetterLog._env=='terminal'){pre=wrapInBashColor(pre, 'light blue','bold');}
+				if(options.printColor && BetterLog._env=='terminal'){
+					pre=wrapInBashColor(pre, 'light blue','bold');
+				}
+				
 				 //in browser you can only color first string, so we only do in terminal here
-				this.handling.forEach(({what,where,extra})=>{
+				for(let {what,where,extra} of this.handling){
 					oneNewline(arr) 
 					addInfo(arr,pre,null,what,where,extra,options,pre.length+2)
-				})
+				}
+				// this.handling.forEach(({what,where,extra})=>{
+				// })
 			}
 
 
@@ -3512,34 +3655,34 @@
 			arr[0]=String(arr[0]);
 
 
-			//Finally add a print method to the array and return it
-			let printMethod=options.printMethod||this.lvl;
-			switch(typeof printMethod){
-				case 'function': 
-					break;
-				case 'object': 
-					printMethod=printMethod[this.lvl]; 
-					break;
-				case 'string': 
-				case 'number': 
-					printMethod=lvlLookup[printMethod].print
-			}
-			printMethod=(typeof printMethod=='function'?printMethod:lvlLookup[this.lvl].print);
-			Object.defineProperty(arr,'print',{value:printMethod});
 			
 
 		}catch(err){
-			console.error('BUGBUG in BetterLogEntry.prototype.toPrintArray():')
-			console.error(' ',err);
+			console.group("BUGBUG - BetterLogEntry.toPrintArray() failed:")
+			console.error(err);
+			console.groupEnd();
 		}
 
+
+		//Finally add a print method to the array and return it
+		let printMethod=options.printMethod||this.lvl;
+		switch(typeof printMethod){
+			case 'function': 
+				break;
+			case 'object': 
+				printMethod=printMethod[this.lvl]; 
+				break;
+			case 'string': 
+			case 'number': 
+				printMethod=lvlLookup[printMethod].print
+		}
+		printMethod=(typeof printMethod=='function'?printMethod:lvlLookup[this.lvl].print);
+		Object.defineProperty(arr,'print',{value:printMethod});
 		return arr;
 
 	}
 
-	function getBashColorCode(color){
-		return '\x1b['+lookupBashColor(color)+'m';
-	}
+	
 
 	/*
 	* Wrap string in bash color codes
@@ -3605,7 +3748,7 @@
 	*/
 	var pushItem={
 		browser:function(printArray,item,len=0){printArray.push(typeof item=='string' ? ((len>0&&item.length>len)?item.substr(0,len)+'...':item): item);}
-		,terminal:function(printArray,item,len=0){printArray.push(typeof item=='object' ? logVar(item,len) : item);}
+		,terminal:function(printArray,item,len=0){printArray.push(typeof item=='string' ? ((len>0&&item.length>len)?item.substr(0,len)+'...':item): logVar(item,len));}
 	}
 	pushItem['inspector']=pushItem['browser'];
 
@@ -3616,10 +3759,7 @@
 	* @return $arr 		The same array that was passed in
 	*/
 	function addInfo(arr,pre,code,msg,where,extra,options,extraIndent){
-		var push=pushItem[BetterLog._env].bind(this,arr)
-			,xl=options.extraLength //strings in extra can be this long         NOTE: in browser objects are live, ie. not converted to strings, 
-			,ml=options.msgLength //strings in main message can be this long          ie. not subject to this limit
-		;
+		var push=pushItem[BetterLog._env].bind(this,arr);
 
 		//First we combine pre and code
 		pre=String(pre||'')
@@ -3627,12 +3767,12 @@
 			pre+=String(code)+': '
 
 		if(typeof msg=='string')
-			push(pre+msg,ml+pre.length);	
+			push(pre+msg,options.msgLength+pre.length);	
 		else if(pre){
 			push(pre);
-			push(msg,ml);
+			push(msg,options.msgLength);
 		}else
-			push(msg,ml);
+			push(msg,options.msgLength);
 
 		//As long as all we're logging is primitives they can go on the same row, otherwise we want each on it's own row.
 		var useNewline=false;
@@ -3643,16 +3783,23 @@
 		}
 		if(extra){
 			(Array.isArray(extra) ? extra : [extra]).forEach((xtra,i)=>{
-				if(useNewline || (typeof xtra=='string' && xtra.match(/\n/))||(typeof xtra=='object' && (i>0 || !(xtra instanceof Error) ) )){
+				if(xtra && xtra.isBLE){ //this shouldn't really happen since other entries should be bubbles... so just turn it into a string
+					xtra=xtra.toString();
+				}
+				if(
+					useNewline 
+					|| (typeof xtra=='string' && xtra.match(/\n/))
+					|| (typeof xtra=='object' && (i>0 || !(xtra instanceof Error) ) )
+				){
 					if(!useNewline) //on the first newline, also add the where
 						addWhere(where,options,arr);
 					oneNewline(arr,extraIndent);
 					// arr.push(xtra); 
-					push(xtra,xl);
+					push(xtra,options.extraLength);
 					useNewline=true;
 				}else{
 					// arr.push(xtra); 
-					push(xtra,xl);
+					push(xtra,options.extraLength);
 				}
 			})		
 		}
@@ -3697,7 +3844,7 @@
 	function BetterLogError(){
 		Object.defineProperties(this,{
 			'name':{get:()=>this.code}
-			,'stack':{get:()=>`${this.code}: ${this.message}\n ${this.stackArr.map(obj=>`    at ${obj.func} (${obj.where})`).join('\n')}`}
+			,'stack':{get:()=>`${this.code}: ${this.message}\n${this.stackArr.map(obj=>`    at ${obj.func} (${obj.where})`).join('\n')}`}
 			  //^DevNote: has to be string for <Error> compatibility, else we can get 'TypeError: stack.startsWith is not a function'
 			  //^DevNote: this also has the effect in Node.js that console.log(<ble>) will print first this^ then the <ble> object...
 			,'isBLE':{value:'error'}
