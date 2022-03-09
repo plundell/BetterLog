@@ -3455,11 +3455,13 @@
 					//         of just getting the last one and then having to scroll up...
 				}else{
 					//We use the same options as above EXCEPT any explicit options set on the entry...
-					let _options=Object.keys(entry._options).length?Object.assign({},options,entry._options):options;
+			//2022-03-09: we want the bubbles to print with whatever level they had
+					// let _options=Object.keys(entry._options).length?Object.assign({},options,entry._options):options;
+					let _options=Object.assign({},options,lvlLookup[entry.lvl],entry._options);
+
 					arr=toPrintArray.call(entry,_options);
 					entry.printed=true;                                       //<--- this and vv is were entries as marked 'printed'
-					 //^DevNote: We mark the entry printed now, even thought it happens vv
-					 //          because we don't have access to the entry vv, only the array...
+					 //^DevNote: we set printed here since we dont have access to the live entry vv
 				}
 
 				bubbles.push(arr);
@@ -3467,17 +3469,13 @@
 			//...and if any exists then group them and print the oldest one first
 			if(bubbles.length){
 				console.group(`--- ${options.STR||lvlLookup[this.lvl].STR} #${this.id} ---`);
-				var i;
-				if(BetterLog._env=='terminal'){
-					for(var i=bubbles.length-1; i>=0;i--){
-						console.group();
-					}
-				}else{
-					for(var i=bubbles.length-1; i>=0;i--){
-						console.group(' ');
-					}
+				let indent=(BetterLog._env=='terminal' ? [] : [' ']); //terminal indents on it's own. don't pass ANY arg if terminal
+				//First indent all the way out...
+				for(let i=bubbles.length-1; i>=0;i--){
+					console.group.apply(this,indent);
 				}
-				for(var i=bubbles.length-1; i>=0;i--){
+				//...then print, un-indent, print...
+				for(let i=bubbles.length-1; i>=0;i--){
 					bubbles[i].print.apply(null,bubbles[i]);
 					console.groupEnd();
 				}
@@ -3507,7 +3505,7 @@
 
 
 	/*
-	* @param object options     A combination of all applicable options, see .print()
+	* @param object options     @see BLE.print(). Level options + entry options + one time options
 	*
 	* @return array[string] 	Array of all the lines of the entry
 	* @call(ble)
