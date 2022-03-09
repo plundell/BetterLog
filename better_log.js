@@ -2024,6 +2024,8 @@
 				stackArr=handleReferenceErrorStack(stackStr);
 			}else if(stackStr.startsWith('Error: Cannot find module')){
 				stackArr=handleModuleNotFoundStack(stackStr);
+			}else if(stackStr.includes('circular structure to JSON')){
+				stackArr=handleCircularJSONStack(stackStr);
 			}else{
 				//Now we either have an array or a string, the later must become the former
 				stackArr = splitStackString(stackStr);
@@ -2216,6 +2218,25 @@
 			BetterLog._syslog.makeError(err,str).setCode("BUGBUG").exec();
 		}
 		return obj;
+	}
+
+	/*
+	* Circular JSON errors have several lines of at the start of the stack which need removing...
+	*
+	* @return array
+	*/
+	function handleCircularJSONStack(str){
+		let needle='closes the circle';
+		let i=str.indexOf(needle);
+		if(i>-1){
+			str=str.substr(i+needle.length);
+		}
+		let arr=splitStackString(str);
+
+		if(arr[0].includes('JSON.stringify'))
+			arr.shift()
+		
+		return arr;
 	}
 
 	// /*
@@ -2611,6 +2632,11 @@
 
 			if(msg instanceof SyntaxError){
 				this.extra.unshift(handleSyntaxErrorStack(msg.stack).description);
+			}else if(msg instanceof TypeError && this.message.startsWith('Converting circular structure to JSON')){
+				let description=this.message.substring(this.message.indexOf("\n")).replaceAll("|",'-')+"\n";
+				this.extra.unshift(description);
+				this.message="Cannot convert circular structure to JSON string";
+				msg.name="EINVAL" // get's set vv
 			}
 				
 			if(msg.code)
