@@ -927,7 +927,7 @@
 		* @not_printed
 		*/
 		this.throwCode=function(...args){
-			throw self.errorCode(...args);
+			throw self.makeErrorCode(...args);
 		}
 
 	//done defining bound shortcuts..
@@ -2178,7 +2178,7 @@
 	* Some SyntaxErrors contains more information at the begining of the stack, ie. information that is not
 	* part of the message, this splits it appart
 	*
-	* @return array
+	* @return object
 	*/
 	function handleSyntaxErrorStack(str){
 		var obj={stackArr:[],description:''};
@@ -2435,10 +2435,22 @@
 
 
 
-
+	/*
+	* Split a stack into lines and remove the first row which contains the error message
+	*
+	* @param string|array    stackStr    The string from (new Error()).stack, or the @return value from this function 
+	*
+	* @return array                      
+	*/
 	function splitStackString(stackStr){
-		return stackStr.split(/\r\n|\r|\n/) //Turn into array (windows and unix compatible)
-			.slice(1) //first row just says 'Error'
+		if(typeof stackStr=='string'){
+			return stackStr.split(/\r\n|\r|\n/) //Turn into array (windows and unix compatible)
+				.slice(1) //first row is the error message, which for (new Error()) just says 'Error'
+		}else if(Array.isArray(stackStr)){
+			return stackStr.slice(0); //copy it... i don't know why but hey
+		}else{
+			throw new TypeError("Expected a stack string or array, got a "+typeof stackStr);
+		}
 	}
 
 
